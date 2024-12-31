@@ -3,7 +3,6 @@ import neopixel
 import asyncio
 
 import adafruit_led_animation.color as color
-from adafruit_led_animation.animation.rainbow import Rainbow
 
 from effects.rainbow_cycle import RainbowCycle
 from effects.sweep import Sweep
