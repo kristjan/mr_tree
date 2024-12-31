@@ -1,0 +1,4 @@
+WIFI_SSID = "RootAccess"
+WIFI_PASSWORD = "Not mulch to see here"
+SERVER_PORT = 7433
+MDNS_NAME = "mr-tree"

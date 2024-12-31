@@ -1,0 +1,138 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Tree Control</title>
+    <link rel="stylesheet" href="https://cdn.jsdelivr.net/gh/mdbassit/Coloris@latest/dist/coloris.min.css" />
+    <script src="https://cdn.jsdelivr.net/gh/mdbassit/Coloris@latest/dist/coloris.min.js"></script>
+    <style>
+        #stateDisplay {
+            margin-top: 20px;
+            padding: 10px;
+            border: 1px solid #ccc;
+            border-radius: 5px;
+            background-color: #f5f5f5;
+        }
+
+        .state-item {
+            margin: 5px 0;
+        }
+
+        .color-preview {
+            display: inline-block;
+            width: 20px;
+            height: 20px;
+            border: 1px solid #000;
+            vertical-align: middle;
+            margin-left: 5px;
+        }
+    </style>
+</head>
+
+<body>
+    <h1>Tree Control</h1>
+    <button onclick="sendRequest('/on')">On</button>
+    <button onclick="sendRequest('/off')">Off</button>
+    <br><br>
+    Color <input type="text" id="colorPicker" oninput="setColor()" data-coloris>
+    <br>
+    Brightness <input type="range" id="brightness" min="0" max="100" value="20" onchange="setBrightness()">
+    <br><br>
+    Speed <input type="range" id="speed" min="0" max="100" value="50" onchange="setSpeed()">
+    <br><br>
+    Effect
+    <select id="effectPicker" onchange="setEffect()">
+        <option value="rainbow_cycle">Rainbow Cycle</option>
+        <option value="sweep">Sweep</option>
+    </select>
+    <input type="button" value="Set Effect" onclick="setEffect()">
+    <br>
+    <button onclick="sendRequest('/pause')">Pause</button>
+    <button onclick="sendRequest('/resume')">Resume</button>
+
+    <div id="stateDisplay">
+        <h3>Current State</h3>
+        <div class="state-item">Power: <span id="powerState">-</span></div>
+        <div class="state-item">
+            Color: <span id="colorState">-</span>
+            <div class="color-preview" id="colorPreview"></div>
+        </div>
+        <div class="state-item">Brightness: <span id="brightnessState">-</span>%</div>
+        <div class="state-item">Speed: <span id="speedState">-</span>%</div>
+        <div class="state-item">Effect: <span id="effectState">-</span></div>
+    </div>
+
+    <script>
+        Coloris({
+            el: '#colorPicker',
+            theme: 'large',
+            format: 'hex',
+            alpha: false,
+            swatches: [
+                '#FF0000', '#FF1010', '#FF7F00', '#FFFF00', '#7FFF00',
+                '#00FF00', '#00FF7F', '#00FFFF', '#007FFF',
+                '#0000FF', '#7F00FF', '#FF00FF', '#FF007F',
+                '#FFFFFF'
+            ]
+        });
+
+        function updateState() {
+            fetch('/state')
+                .then(response => response.json())
+                .then(state => {
+                    document.getElementById('powerState').textContent = state.on ? 'On' : 'Off';
+                    document.getElementById('brightnessState').textContent = state.brightness;
+                    document.getElementById('speedState').textContent = Math.round(state.speed * 100);
+                    document.getElementById('effectState').textContent = state.effect || 'None';
+
+                    const color = state.color;
+                    const colorHex = `rgb(${color.red}, ${color.green}, ${color.blue})`;
+                    document.getElementById('colorState').textContent = colorHex;
+                    document.getElementById('colorPreview').style.backgroundColor = colorHex;
+
+                    // Update slider positions
+                    document.getElementById('brightness').value = state.brightness;
+                    document.getElementById('speed').value = Math.round(state.speed * 100);
+                })
+                .catch(error => console.error('Error fetching state:', error));
+        }
+
+        function sendRequest(endpoint) {
+            fetch(endpoint)
+                .then(response => response.text())
+                .then(data => {
+                    console.log(data);
+                    updateState();
+                });
+        }
+
+        function setColor() {
+            const color = document.getElementById('colorPicker').value.substring(1);
+            sendRequest(`/color/${color}`);
+        }
+
+        function setBrightness() {
+            const brightness = document.getElementById('brightness').value;
+            sendRequest(`/brightness/${brightness}`);
+        }
+
+        function setSpeed() {
+            const speed = document.getElementById('speed').value;
+            sendRequest(`/speed/${speed}`);
+        }
+
+        function setEffect() {
+            const effect = document.getElementById('effectPicker').value;
+            sendRequest(`/effect/${effect}`);
+        }
+
+        // Initial state update
+        updateState();
+        // Update state every 5 seconds
+        setInterval(updateState, 5000);
+    </script>
+</body>
+
+</html>
