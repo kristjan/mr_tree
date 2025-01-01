@@ -6,6 +6,7 @@ import adafruit_led_animation.color as color
 
 from effects.rainbow_cycle import RainbowCycle
 from effects.sweep import Sweep
+from effects.timer import Timer
 
 class Position:
   LEFT = 0
@@ -13,7 +14,7 @@ class Position:
   RIGHT = 2
 
 class Tree:
-  EFFECTS = ["rainbow_cycle", "sweep"]
+  EFFECTS = ["rainbow_cycle", "sweep", "timer"]
 
   def __init__(self):
     self.string = neopixel.NeoPixel(board.A1, 100, brightness=0.2, auto_write=False, pixel_order=neopixel.RGB)
@@ -62,9 +63,9 @@ class Tree:
       next = (current + 1) % len(self.EFFECTS)
       self.set_animation(self.EFFECTS[next])
 
-  def set_animation(self, effect):
+  def set_animation(self, effect, params=None):
     self.pause()
-    self.animation = self.load_effect(effect)
+    self.animation = self.load_effect(effect, params or {})
     self.resume()
 
   def pause(self):
@@ -98,13 +99,20 @@ class Tree:
       # Keep update speed constant and fast for smooth animation
       self.animation.speed = 0.01
 
-  def load_effect(self, effect_name: str):
+  def load_effect(self, effect_name: str, params=None):
+      params = params or {}
       if effect_name == 'rainbow_cycle':
           # Start with medium speed (frequency = 1.0)
           return RainbowCycle(self.string, self.coordinates, speed=0.01, frequency=1.0, name='rainbow_cycle')
       elif effect_name == "sweep":
           # Start with medium speed (step = 5, lag = 80)
           return Sweep(self.string, coordinates=self.coordinates, color=color.BLUE, speed=0.01, lead=20, lag=80, step=5, name='sweep')
+      elif effect_name == "timer":
+          # Default 5 minute timer if not specified
+          duration = int(params.get('duration', 300))
+          timer = Timer(self.string, self.coordinates, speed=0.01, duration=duration, name='timer')
+          timer.start()  # Start the timer immediately
+          return timer
       else:
           raise ValueError(f"Unknown effect: {effect_name}")
 

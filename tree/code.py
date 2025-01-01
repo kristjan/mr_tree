@@ -88,12 +88,19 @@ def brightness(request: Request, brightness: str):
     tree.set_brightness(int(brightness) / 100)
     return Response(request, f"Tree brightness set to {brightness}")
 
-@server.route("/effect/<effect>")
+@server.route("/effect/<effect>", methods=["POST"])
 def effect(request: Request, effect: str):
     """
-    Set the tree effect.
+    Set the tree effect with optional parameters.
     """
-    tree.set_animation(effect)
+    params = {}
+    if request.body:
+        try:
+            params = json.loads(request.body.decode())
+        except json.JSONDecodeError:
+            return Response(request, "Invalid JSON parameters", status=400)
+
+    tree.set_animation(effect, params)
     return Response(request, "Tree effect set")
 
 @server.route("/pause")

@@ -43,10 +43,9 @@
     Speed <input type="range" id="speed" min="0" max="100" value="50" onchange="setSpeed()">
     <br><br>
     Effect
-    <select id="effectPicker" onchange="setEffect()">
-        <option value="rainbow_cycle">Rainbow Cycle</option>
-        <option value="sweep">Sweep</option>
+    <select id="effectPicker" onchange="updateEffectParams()">
     </select>
+    <div id="effectParams"></div>
     <input type="button" value="Set Effect" onclick="setEffect()">
     <br>
     <button onclick="sendRequest('/pause')">Pause</button>
@@ -78,10 +77,35 @@
             ]
         });
 
+        function updateEffectParams() {
+            const effect = document.getElementById('effectPicker').value;
+            const paramsDiv = document.getElementById('effectParams');
+            paramsDiv.innerHTML = '';
+
+            if (effect === 'timer') {
+                const durationInput = document.createElement('div');
+                durationInput.innerHTML = `
+                    <br>Duration (seconds):
+                    <input type="number" id="duration" value="300" min="1">
+                `;
+                paramsDiv.appendChild(durationInput);
+            }
+            // Add other effect-specific parameters here as needed
+        }
+
+        function populateEffects(effects) {
+            const picker = document.getElementById('effectPicker');
+            picker.innerHTML = effects.map(effect =>
+                `<option value="${effect}">${effect}</option>`
+            ).join('');
+            updateEffectParams();
+        }
+
         function updateState() {
             fetch('/state')
                 .then(response => response.json())
                 .then(state => {
+                    // Update display values only
                     document.getElementById('powerState').textContent = state.on ? 'On' : 'Off';
                     document.getElementById('brightnessState').textContent = state.brightness;
                     document.getElementById('speedState').textContent = Math.round(state.speed * 100);
@@ -95,12 +119,26 @@
                     // Update slider positions
                     document.getElementById('brightness').value = state.brightness;
                     document.getElementById('speed').value = Math.round(state.speed * 100);
+
+                    // Only populate effects list if it's empty (first load)
+                    const picker = document.getElementById('effectPicker');
+                    if (!picker.options.length && state.available_effects) {
+                        populateEffects(state.available_effects);
+                    }
                 })
                 .catch(error => console.error('Error fetching state:', error));
         }
 
-        function sendRequest(endpoint) {
-            fetch(endpoint)
+        function sendRequest(endpoint, method = 'GET', body = null) {
+            const options = {
+                method: method,
+                headers: body ? { 'Content-Type': 'application/json' } : {}
+            };
+            if (body) {
+                options.body = JSON.stringify(body);
+            }
+
+            return fetch(endpoint, options)
                 .then(response => response.text())
                 .then(data => {
                     console.log(data);
@@ -125,7 +163,16 @@
 
         function setEffect() {
             const effect = document.getElementById('effectPicker').value;
-            sendRequest(`/effect/${effect}`);
+            const params = {};
+
+            // Collect effect-specific parameters
+            if (effect === 'timer') {
+                const duration = document.getElementById('duration').value;
+                params.duration = parseInt(duration);
+            }
+            // Add other effect parameter collection here as needed
+
+            sendRequest(`/effect/${effect}`, 'POST', params);
         }
 
         // Initial state update
