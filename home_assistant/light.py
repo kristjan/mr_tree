@@ -96,6 +96,10 @@ class MrTreeLight(LightEntity):
         # Build state update
         state = {"on": True}
 
+        # Always include current color in state update
+        rgb_hex = "%02x%02x%02x" % self._attr_rgb_color
+        state["color"] = rgb_hex
+
         if ATTR_EFFECT in kwargs:
             effect = kwargs[ATTR_EFFECT]
             if effect in self._attr_effect_list:
