@@ -128,11 +128,49 @@ def speed(request: Request, speed: str):
     return Response(request, f"Tree animation speed set to {speed}")
 
 @server.route("/state")
-def state(request: Request):
+def get_state(request: Request):
     """
     Get the tree state.
     """
     return Response(request, json.dumps(tree.state()), content_type="application/json")
+
+@server.route("/state", methods=["POST"])
+def set_state(request: Request):
+    """
+    Set multiple tree attributes at once.
+    Accepts JSON body with any of: on, brightness, color, effect, effect_params
+    Returns the new state.
+    """
+    try:
+        params = json.loads(request.body.decode())
+
+        if "on" in params:
+            if params["on"]:
+                tree.on()
+            else:
+                tree.off()
+
+        if "effect" in params:
+            effect = params["effect"]
+            effect_params = params.get("effect_params", {})
+            tree.set_animation(effect, effect_params)
+        elif "color" in params:
+            # Expect color as hex string without #
+            tree.set_color(hex_to_rgb(params["color"]))
+
+        if "brightness" in params:
+            # Expect brightness as 0-100
+            tree.set_brightness(int(params["brightness"]) / 100)
+
+        if "speed" in params:
+            # Expect speed as 0-100
+            tree.set_speed(float(params["speed"]) / 100)
+
+        return Response(request, json.dumps(tree.state()), content_type="application/json")
+    except json.JSONDecodeError:
+        return Response(request, "Invalid JSON", status=400)
+    except Exception as e:
+        return Response(request, f"Error: {str(e)}", status=400)
 
 def hex_to_rgb(hex):
     return tuple(int(hex[i:i+2], 16) for i in (0, 2, 4))

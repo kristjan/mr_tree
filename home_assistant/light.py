@@ -3,6 +3,7 @@ from __future__ import annotations
 import logging
 import aiohttp
 import async_timeout
+import asyncio
 
 from homeassistant.components.light import (
     ATTR_BRIGHTNESS,
@@ -89,58 +90,103 @@ class MrTreeLight(LightEntity):
 
     async def async_turn_on(self, **kwargs) -> None:
         """Turn the light on."""
-        url = f"http://{self._host}:{self._port}/on"
+        if not self._session:
+            self._session = aiohttp.ClientSession()
+
+        # Build state update
+        state = {"on": True}
 
         if ATTR_EFFECT in kwargs:
             effect = kwargs[ATTR_EFFECT]
             if effect in self._attr_effect_list:
                 self._attr_effect = effect
-                url = f"http://{self._host}:{self._port}/effect/{effect}"
+                state["effect"] = effect
 
         if ATTR_RGB_COLOR in kwargs:
             self._attr_rgb_color = kwargs[ATTR_RGB_COLOR]
             rgb_hex = "%02x%02x%02x" % self._attr_rgb_color
-            url = f"http://{self._host}:{self._port}/color/{rgb_hex}"
+            state["color"] = rgb_hex
 
         if ATTR_BRIGHTNESS in kwargs:
             self._attr_brightness = kwargs[ATTR_BRIGHTNESS]
             # Convert from HA's 0-255 to Tree's 0-100
-            brightness_percent = round((kwargs[ATTR_BRIGHTNESS] / 255) * 100)
-            url = f"http://{self._host}:{self._port}/brightness/{brightness_percent}"
+            state["brightness"] = round((kwargs[ATTR_BRIGHTNESS] / 255) * 100)
 
+        # Send single request with all updates
+        url = f"http://{self._host}:{self._port}/state"
         try:
             async with async_timeout.timeout(10):
-                async with self._session.get(url) as response:
+                async with self._session.post(url, json=state) as response:
                     if response.status == 200:
-                        self._attr_is_on = True
+                        data = await response.json()
+                        self._update_from_state(data)
+                    else:
+                        _LOGGER.error("Failed to update state: %s", response.status)
         except Exception as err:
-            _LOGGER.error("Failed to turn on: %s", err)
+            _LOGGER.error("Failed to update state: %s", err)
 
     async def async_turn_off(self, **kwargs) -> None:
         """Turn the light off."""
-        url = f"http://{self._host}:{self._port}/off"
+        if not self._session:
+            self._session = aiohttp.ClientSession()
+
+        url = f"http://{self._host}:{self._port}/state"
         try:
             async with async_timeout.timeout(10):
-                async with self._session.get(url) as response:
+                async with self._session.post(url, json={"on": False}) as response:
                     if response.status == 200:
-                        self._attr_is_on = False
+                        data = await response.json()
+                        self._update_from_state(data)
+                    else:
+                        _LOGGER.error("Failed to turn off: %s", response.status)
         except Exception as err:
             _LOGGER.error("Failed to turn off: %s", err)
 
+    def _update_from_state(self, data: dict) -> None:
+        """Update internal state from server response."""
+        if not data:
+            _LOGGER.error("Empty response from tree")
+            return
+        self._attr_is_on = data.get("on", False)
+        # Convert brightness from 0-100 to 0-255
+        self._attr_brightness = round((data.get("brightness", 0) / 100) * 255)
+        color = data.get("color", {"red": 255, "green": 255, "blue": 255})
+        self._attr_rgb_color = (color.get("red", 0), color.get("green", 0), color.get("blue", 0))
+        self._attr_effect = data.get("effect")
+        # Filter out timer from available effects
+        self._attr_effect_list = [
+            effect for effect in data.get("available_effects", [])
+            if effect != "timer"
+        ]
+
     async def async_update(self) -> None:
         """Fetch new state data for this light."""
+        if not self._session:
+            self._session = aiohttp.ClientSession()
+
         url = f"http://{self._host}:{self._port}/state"
         try:
             async with async_timeout.timeout(10):
                 async with self._session.get(url) as response:
                     if response.status == 200:
                         data = await response.json()
-                        self._attr_is_on = data["on"]
+                        if not data:
+                            _LOGGER.error("Empty response from tree")
+                            return
+                        self._attr_is_on = data.get("on", False)
                         # Convert brightness from 0-100 to 0-255
-                        self._attr_brightness = round((data["brightness"] / 100) * 255)
-                        color = data["color"]
-                        self._attr_rgb_color = (color["red"], color["green"], color["blue"])
+                        self._attr_brightness = round((data.get("brightness", 0) / 100) * 255)
+                        color = data.get("color", {"red": 255, "green": 255, "blue": 255})
+                        self._attr_rgb_color = (color.get("red", 0), color.get("green", 0), color.get("blue", 0))
                         self._attr_effect = data.get("effect")
-                        self._attr_effect_list = data.get("available_effects", [])
+                        # Filter out timer from available effects
+                        self._attr_effect_list = [
+                            effect for effect in data.get("available_effects", [])
+                            if effect != "timer"
+                        ]
+        except asyncio.TimeoutError:
+            _LOGGER.error("Timeout connecting to %s", self._host)
+        except aiohttp.ClientError as err:
+            _LOGGER.error("Error connecting to %s: %s", self._host, err)
         except Exception as err:
             _LOGGER.error("Failed to update: %s", err)

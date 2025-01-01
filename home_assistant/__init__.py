@@ -1,18 +1,39 @@
 """The Mr Tree integration."""
+from __future__ import annotations
+
+import logging
+import voluptuous as vol
+
+from homeassistant.const import CONF_HOST, CONF_PORT, Platform
 from homeassistant.core import HomeAssistant
-from homeassistant.config_entries import ConfigEntry
+import homeassistant.helpers.config_validation as cv
+from homeassistant.helpers.typing import ConfigType
 
-PLATFORMS = ["light"]
+from .const import DOMAIN, DEFAULT_HOST, DEFAULT_PORT
 
-async def async_setup(hass: HomeAssistant, config: dict):
+_LOGGER = logging.getLogger(__name__)
+
+PLATFORMS = [Platform.LIGHT]
+
+CONFIG_SCHEMA = vol.Schema(
+    {
+        DOMAIN: vol.Schema(
+            {
+                vol.Optional(CONF_HOST, default=DEFAULT_HOST): cv.string,
+                vol.Optional(CONF_PORT, default=DEFAULT_PORT): cv.port,
+            }
+        )
+    },
+    extra=vol.ALLOW_EXTRA,
+)
+
+async def async_setup(hass: HomeAssistant, config: ConfigType) -> bool:
     """Set up the Mr Tree component."""
-    return True
+    if DOMAIN not in config:
+        return True
 
-async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry):
-    """Set up Mr Tree from a config entry."""
-    await hass.config_entries.async_forward_entry_setups(entry, PLATFORMS)
-    return True
+    hass.data[DOMAIN] = config[DOMAIN]
 
-async def async_unload_entry(hass: HomeAssistant, entry: ConfigEntry):
-    """Unload a config entry."""
-    return await hass.config_entries.async_unload_platforms(entry, PLATFORMS)
+    await hass.helpers.discovery.async_load_platform("light", DOMAIN, {}, config)
+
+    return True
