@@ -176,6 +176,7 @@ def on(request: Request):
     Turn the tree on.
     """
     tree.on()
+    publish_state()
     return Response(request, "Tree on")
 
 @server.route("/off")
@@ -184,6 +185,7 @@ def off(request: Request):
     Turn the tree off.
     """
     tree.off()
+    publish_state()
     return Response(request, "Tree off")
 
 @server.route("/color/<color>")
@@ -192,6 +194,7 @@ def color(request: Request, color: str):
     Set the tree color.
     """
     tree.set_color(hex_to_rgb(color))
+    publish_state()
     return Response(request, f"Tree color set to {color}")
 
 @server.route("/brightness/<brightness>")
@@ -200,6 +203,7 @@ def brightness(request: Request, brightness: str):
     Set the tree brightness.
     """
     tree.set_brightness(int(brightness) / 100)
+    publish_state()
     return Response(request, f"Tree brightness set to {brightness}")
 
 @server.route("/effect/<effect>", methods=["POST"])
@@ -215,6 +219,7 @@ def effect(request: Request, effect: str):
             return Response(request, "Invalid JSON parameters", status=400)
 
     tree.set_animation(effect, params)
+    publish_state()
     return Response(request, "Tree effect set")
 
 @server.route("/pause")
@@ -223,6 +228,7 @@ def pause(request: Request):
     Pause the tree effect.
     """
     tree.pause()
+    publish_state()
     return Response(request, "Tree effect paused")
 
 @server.route("/resume")
@@ -231,6 +237,7 @@ def resume(request: Request):
     Resume the tree effect.
     """
     tree.resume()
+    publish_state()
     return Response(request, "Tree effect resumed")
 
 @server.route("/speed/<speed>")
@@ -239,6 +246,7 @@ def speed(request: Request, speed: str):
     Set the animation speed.
     """
     tree.set_speed(float(speed) / 100)
+    publish_state()
     return Response(request, f"Tree animation speed set to {speed}")
 
 @server.route("/state")
@@ -280,6 +288,7 @@ def set_state(request: Request):
             # Expect speed as 0-100
             tree.set_speed(float(params["speed"]) / 100)
 
+        publish_state()
         return Response(request, json.dumps(tree.state()), content_type="application/json")
     except json.JSONDecodeError:
         return Response(request, "Invalid JSON", status=400)
