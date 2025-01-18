@@ -18,6 +18,8 @@ from effects.sweep import Sweep
 # MQTT topics
 MQTT_TOPIC_STATE = "mr_tree/state"
 MQTT_TOPIC_SET = "mr_tree/set"
+MQTT_DISCOVERY_PREFIX = "homeassistant"
+MQTT_DISCOVERY_TOPIC = f"{MQTT_DISCOVERY_PREFIX}/light/mr_tree/config"
 
 print("Creating tree...")
 tree = Tree()
@@ -55,10 +57,44 @@ mqtt_client = MQTT(
     socket_pool=pool,
 )
 
+def publish_discovery():
+    """Publish MQTT discovery configuration for Home Assistant."""
+    device = {
+        "identifiers": ["mr_tree"],
+        "name": "Mr Tree",
+        "model": "LED Tree",
+        "manufacturer": "Haha Moment",
+        "sw_version": "1.0.0",
+        "configuration_url": f"http://{wifi.radio.ipv4_address}:7433"
+    }
+
+    config = {
+        "name": "Mr Tree Light",
+        "unique_id": "mr_tree_light",
+        "command_topic": MQTT_TOPIC_SET,
+        "state_topic": MQTT_TOPIC_STATE,
+        "schema": "json",
+        "brightness": True,
+        "rgb": True,
+        "effect": True,
+        "effect_list": Tree.EFFECTS,
+        "optimistic": False,
+        "qos": 0,
+        "retain": True,
+        "device": device
+    }
+    try:
+        print(f"Publishing discovery config to {MQTT_DISCOVERY_TOPIC}")
+        mqtt_client.publish(MQTT_DISCOVERY_TOPIC, json.dumps(config), retain=True)
+    except Exception as e:
+        print(f"Error publishing discovery config: {e}")
+
 def mqtt_connect(mqtt_client, userdata, flags, rc):
     """Handle MQTT connection."""
     print("Connected to MQTT broker!")
     mqtt_client.subscribe(MQTT_TOPIC_SET)
+    # Publish discovery configuration
+    publish_discovery()
     # Publish initial state
     publish_state()
 
@@ -68,20 +104,21 @@ def mqtt_message(mqtt_client, topic, message):
     if topic == MQTT_TOPIC_SET:
         try:
             state = json.loads(message)
-            if "on" in state:
-                if state["on"]:
+            if "state" in state:
+                if state["state"] == "ON":
                     tree.on()
-                else:
+                elif state["state"] == "OFF":
                     tree.off()
             if "brightness" in state:
                 tree.set_brightness(state["brightness"] / 100)  # Convert from 0-100 to 0-1
             if "color" in state:
-                # Expect hex color string
+                # Expect RGB dict from HA
                 color = state["color"]
-                r = int(color[0:2], 16)
-                g = int(color[2:4], 16)
-                b = int(color[4:6], 16)
-                tree.set_color((r, g, b))
+                if isinstance(color, dict):
+                    r = color.get("r", 0)
+                    g = color.get("g", 0)
+                    b = color.get("b", 0)
+                    tree.set_color((r, g, b))
             if "effect" in state:
                 tree.set_animation(state["effect"])
             # Publish updated state
@@ -92,8 +129,19 @@ def mqtt_message(mqtt_client, topic, message):
 def publish_state():
     """Publish the current state to MQTT."""
     try:
-        state = tree.state()
-        message = json.dumps(state)
+        tree_state = tree.state()
+        # Convert to HA expected format
+        ha_state = {
+            "state": "ON" if tree_state["on"] else "OFF",
+            "brightness": int(tree_state["brightness"] * 100),  # Convert 0-1 to 0-100
+            "color": {
+                "r": tree_state["color"]["red"],
+                "g": tree_state["color"]["green"],
+                "b": tree_state["color"]["blue"]
+            },
+            "effect": tree_state["effect"]
+        }
+        message = json.dumps(ha_state)
         print(f"MQTT >> {MQTT_TOPIC_STATE}: {message}")
         mqtt_client.publish(MQTT_TOPIC_STATE, message)
     except Exception as e:
