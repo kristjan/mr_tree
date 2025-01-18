@@ -1,0 +1,11 @@
+# Core libraries
+adafruit_httpserver
+adafruit_minimqtt
+adafruit_ticks
+adafruit_connection_manager
+
+# LED animation libraries
+adafruit_led_animation
+
+# Board support
+neopixel
