@@ -1,4 +1,13 @@
+# WiFi Settings
 WIFI_SSID = "RootAccess"
 WIFI_PASSWORD = "Not mulch to see here"
+
+# HTTP Server Settings
 SERVER_PORT = 7433
 MDNS_NAME = "mr-tree"
+
+# MQTT Settings
+MQTT_BROKER = "homeassistant.local"  # Your MQTT broker address
+MQTT_PORT = 1883                     # MQTT broker port (default: 1883)
+MQTT_USERNAME = ""                   # Optional: MQTT username
+MQTT_PASSWORD = ""                   # Optional: MQTT password

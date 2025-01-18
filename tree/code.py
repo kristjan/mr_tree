@@ -9,10 +9,15 @@ from adafruit_httpserver.server import Server, Request, Response
 from adafruit_seesaw.seesaw import Seesaw
 from adafruit_seesaw.rotaryio import IncrementalEncoder
 from adafruit_seesaw.digitalio import DigitalIO
+from adafruit_minimqtt.adafruit_minimqtt import MQTT
 
 from tree import Tree
 from effects.rainbow_cycle import RainbowCycle
 from effects.sweep import Sweep
+
+# MQTT topics
+MQTT_TOPIC_STATE = "mr_tree/state"
+MQTT_TOPIC_SET = "mr_tree/set"
 
 print("Creating tree...")
 tree = Tree()
@@ -22,6 +27,9 @@ tree.on()
 print("Connecting to WiFi...")
 wifi.radio.connect(os.getenv("WIFI_SSID"), os.getenv("WIFI_PASSWORD"))
 print("Connected!", str(wifi.radio.ipv4_address))
+
+# Set up socket pool
+pool = socketpool.SocketPool(wifi.radio)
 
 print("Starting mDNS...")
 try:
@@ -34,8 +42,66 @@ except Exception as e:
     print(f"Failed to start mDNS: {e}")
     print("Continuing without mDNS...")
 
-pool = socketpool.SocketPool(wifi.radio)
+# Set up HTTP server
 server = Server(pool, "/static", debug=True)
+
+# Set up MQTT client
+print("Setting up MQTT client...")
+mqtt_client = MQTT(
+    broker=os.getenv("MQTT_BROKER"),
+    port=int(os.getenv("MQTT_PORT", "1883")),
+    username=os.getenv("MQTT_USERNAME"),
+    password=os.getenv("MQTT_PASSWORD"),
+    socket_pool=pool,
+)
+
+def mqtt_connect(mqtt_client, userdata, flags, rc):
+    """Handle MQTT connection."""
+    print("Connected to MQTT broker!")
+    mqtt_client.subscribe(MQTT_TOPIC_SET)
+    # Publish initial state
+    publish_state()
+
+def mqtt_message(mqtt_client, topic, message):
+    """Handle incoming MQTT messages."""
+    print(f"MQTT << {topic}: {message}")
+    if topic == MQTT_TOPIC_SET:
+        try:
+            state = json.loads(message)
+            if "on" in state:
+                if state["on"]:
+                    tree.on()
+                else:
+                    tree.off()
+            if "brightness" in state:
+                tree.set_brightness(state["brightness"] / 100)  # Convert from 0-100 to 0-1
+            if "color" in state:
+                # Expect hex color string
+                color = state["color"]
+                r = int(color[0:2], 16)
+                g = int(color[2:4], 16)
+                b = int(color[4:6], 16)
+                tree.set_color((r, g, b))
+            if "effect" in state:
+                tree.set_animation(state["effect"])
+            # Publish updated state
+            publish_state()
+        except Exception as e:
+            print(f"Error handling MQTT message: {e}")
+
+def publish_state():
+    """Publish the current state to MQTT."""
+    try:
+        state = tree.state()
+        message = json.dumps(state)
+        print(f"MQTT >> {MQTT_TOPIC_STATE}: {message}")
+        mqtt_client.publish(MQTT_TOPIC_STATE, message)
+    except Exception as e:
+        print(f"Error publishing state: {e}")
+
+# Set up MQTT callbacks
+mqtt_client.on_connect = mqtt_connect
+mqtt_client.on_message = mqtt_message
 
 # Initialize rotary encoders
 i2c = board.I2C()
@@ -193,17 +259,38 @@ async def handle_encoders():
         #         tree.press(i)
         await asyncio.sleep(0.05)
 
+async def handle_mqtt():
+    """Handle MQTT message loop."""
+    while True:
+        try:
+            mqtt_client.loop()
+        except Exception as e:
+            print(f"MQTT error: {e}")
+            # Try to reconnect
+            try:
+                mqtt_client.reconnect()
+            except Exception as e:
+                print(f"MQTT reconnection failed: {e}")
+        await asyncio.sleep(0.1)  # Small delay to prevent tight loop
+
 async def main():
     print("Starting server")
     server.start(str(wifi.radio.ipv4_address), 7433)
+    print("Connecting to MQTT broker...")
+    try:
+        mqtt_client.connect()
+    except Exception as e:
+        print(f"Failed to connect to MQTT broker: {e}")
     print("Creating server task")
     server_task = asyncio.create_task(handle_requests())
     print("Creating animation task")
     animation_task = asyncio.create_task(tree.animate())
     print("Creating encoder task")
     encoder_task = asyncio.create_task(handle_encoders())
+    print("Creating MQTT task")
+    mqtt_task = asyncio.create_task(handle_mqtt())
     print("Starting tasks")
-    await asyncio.gather(server_task, animation_task, encoder_task)
+    await asyncio.gather(server_task, animation_task, encoder_task, mqtt_task)
     print("Tasks started")
 
 if __name__ == "__main__":
