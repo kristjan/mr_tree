@@ -78,7 +78,7 @@ def publish_discovery():
         "rgb": True,
         "effect": True,
         "effect_list": Tree.EFFECTS,
-        "optimistic": False,
+        "optimistic": True,
         "qos": 0,
         "retain": True,
         "device": device
