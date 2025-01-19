@@ -20,6 +20,7 @@ class Tree:
     self.string = neopixel.NeoPixel(board.A1, 100, brightness=0.2, auto_write=False, pixel_order=neopixel.RGB)
     self.coordinates = self.read_coordinates()
     self.animation = None
+    self.previous_brightness = 0.2  # Store initial brightness
     self.on()
 
   def press(self, button):
@@ -30,13 +31,18 @@ class Tree:
     print(f"Encoder {encoder} turned {diff} steps")
 
   def on(self):
-    self.pause()
-    self.string.fill(color.WHITE)
+    """Turn the tree on by restoring previous brightness."""
+    self.string.brightness = self.previous_brightness
     self.string.show()
+    if self.animation:
+      self.resume()
 
   def off(self):
-    self.pause()
-    self.string.fill(color.BLACK)
+    """Turn the tree off by setting brightness to 0 while preserving state."""
+    if self.animation:
+      self.pause()
+    self.previous_brightness = self.string.brightness
+    self.string.brightness = 0
     self.string.show()
 
   def set_color(self, color):
