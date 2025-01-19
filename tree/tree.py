@@ -188,7 +188,7 @@ class Tree:
 
     return {
       "on": any(pixels),
-      "brightness": int((self.string.brightness / 0.25) * 100),  # Convert back to 0-100 range
+      "brightness": self.string.brightness / 0.25,  # Convert 0-.25 back to 0-1
       "color": {
         "red": current_color[0],
         "green": current_color[1],

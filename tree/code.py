@@ -110,7 +110,7 @@ def mqtt_message(mqtt_client, topic, message):
                 elif state["state"] == "OFF":
                     tree.off()
             if "brightness" in state:
-                tree.set_brightness(state["brightness"] / 100)  # Convert from 0-100 to 0-1
+                tree.set_brightness(state["brightness"] / 255)  # Convert from 0-255 to 0-1
             if "color" in state:
                 # Expect RGB dict from HA
                 color = state["color"]
@@ -133,7 +133,7 @@ def publish_state():
         # Convert to HA expected format
         ha_state = {
             "state": "ON" if tree_state["on"] else "OFF",
-            "brightness": int(tree_state["brightness"] * 100),  # Convert 0-1 to 0-100
+            "brightness": int(tree_state["brightness"] * 255),  # Convert 0-.25 to 0-255
             "color": {
                 "r": tree_state["color"]["red"],
                 "g": tree_state["color"]["green"],
