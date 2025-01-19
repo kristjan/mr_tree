@@ -120,7 +120,7 @@ class Tree:
     while True:
       if self.animation:
         self.animation.animate()
-        await asyncio.sleep(0)
+        await asyncio.sleep(0.033)  # ~30fps is plenty smooth for LED animations
       else:
         await asyncio.sleep(0.3)
 

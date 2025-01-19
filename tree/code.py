@@ -55,6 +55,7 @@ mqtt_client = MQTT(
     username=os.getenv("MQTT_USERNAME"),
     password=os.getenv("MQTT_PASSWORD"),
     socket_pool=pool,
+    socket_timeout=0.01  # Reduce socket timeout to 10ms
 )
 
 def publish_discovery():
@@ -314,13 +315,13 @@ async def handle_encoders():
         #         tree.turn(i, diff)
         #     if not button.value:
         #         tree.press(i)
-        await asyncio.sleep(0.05)
+        await asyncio.sleep(0.1)
 
 async def handle_mqtt():
     """Handle MQTT message loop."""
     while True:
         try:
-            mqtt_client.loop()
+            mqtt_client.loop(timeout=0.01)  # Reduce loop timeout to 10ms
         except Exception as e:
             print(f"MQTT error: {e}")
             # Try to reconnect
@@ -328,7 +329,7 @@ async def handle_mqtt():
                 mqtt_client.reconnect()
             except Exception as e:
                 print(f"MQTT reconnection failed: {e}")
-        await asyncio.sleep(0.1)  # Small delay to prevent tight loop
+        await asyncio.sleep(0.5)  # Sleep for 500ms between polls
 
 async def main():
     print("Starting server")
