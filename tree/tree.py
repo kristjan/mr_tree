@@ -118,7 +118,7 @@ class Tree:
 
   async def animate(self):
     while True:
-      if self.animation:
+      if self.animation and not self.animation.frozen:
         self.animation.animate()
         await asyncio.sleep(0.033)  # ~30fps is plenty smooth for LED animations
       else:
@@ -184,6 +184,7 @@ class Tree:
             - effect: current effect name or None
             - speed: current animation speed (0-100)
             - available_effects: list of available effects
+            - animation_state: "paused" or "running"
     """
     # Get current color from pixels
     pixels = [self.string[i] for i in range(len(self.string))]
@@ -199,5 +200,6 @@ class Tree:
       },
       "effect": self.animation.name if self.animation else None,
       "speed": int(self.animation.speed * 100) if self.animation else 50,
-      "available_effects": self.EFFECTS
+      "available_effects": self.EFFECTS,
+      "animation_state": "paused" if self.animation and self.animation.frozen else "running"
     }

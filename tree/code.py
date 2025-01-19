@@ -82,7 +82,9 @@ def publish_discovery():
         "optimistic": True,
         "qos": 0,
         "retain": True,
-        "device": device
+        "device": device,
+        "json_attributes_topic": MQTT_TOPIC_STATE,
+        "json_attributes_template": "{{ {'animation_state': value_json.animation_state} | tojson }}"
     }
     try:
         print(f"Publishing discovery config to {MQTT_DISCOVERY_TOPIC}")
@@ -99,31 +101,60 @@ def mqtt_connect(mqtt_client, userdata, flags, rc):
     # Publish initial state
     publish_state()
 
+def handle_state_change(state_params):
+    """Handle state changes from any source (MQTT or HTTP).
+
+    Args:
+        state_params: dict containing any of: state, brightness, color, effect, effect_params, speed, animation_state
+    Returns:
+        None
+    """
+    try:
+        if "state" in state_params:
+            if state_params["state"] == "ON":
+                tree.on()
+            elif state_params["state"] == "OFF":
+                tree.off()
+
+        if "effect" in state_params:
+            effect = state_params["effect"]
+            effect_params = state_params.get("effect_params", {})
+            tree.set_animation(effect, effect_params)
+        elif "color" in state_params:
+            # Expect RGB dict from HA
+            color = state_params["color"]
+            if isinstance(color, dict):
+                r = color.get("r", 0)
+                g = color.get("g", 0)
+                b = color.get("b", 0)
+                tree.set_color((r, g, b))
+
+        if "brightness" in state_params:
+            # Expect brightness as 0-255
+            tree.set_brightness(state_params["brightness"])
+
+        if "speed" in state_params:
+            # Expect speed as 0-100
+            tree.set_speed(float(state_params["speed"]) / 100)
+
+        if "animation_state" in state_params:
+            if state_params["animation_state"] == "paused":
+                tree.pause()
+            elif state_params["animation_state"] == "running":
+                tree.resume()
+
+        publish_state()
+    except Exception as e:
+        print(f"Error handling state change: {e}")
+        raise
+
 def mqtt_message(mqtt_client, topic, message):
     """Handle incoming MQTT messages."""
     print(f"MQTT << {topic}: {message}")
     if topic == MQTT_TOPIC_SET:
         try:
             state = json.loads(message)
-            if "state" in state:
-                if state["state"] == "ON":
-                    tree.on()
-                elif state["state"] == "OFF":
-                    tree.off()
-            if "brightness" in state:
-                tree.set_brightness(state["brightness"])
-            if "color" in state:
-                # Expect RGB dict from HA
-                color = state["color"]
-                if isinstance(color, dict):
-                    r = color.get("r", 0)
-                    g = color.get("g", 0)
-                    b = color.get("b", 0)
-                    tree.set_color((r, g, b))
-            if "effect" in state:
-                tree.set_animation(state["effect"])
-            # Publish updated state
-            publish_state()
+            handle_state_change(state)
         except Exception as e:
             print(f"Error handling MQTT message: {e}")
 
@@ -166,8 +197,7 @@ def on(request: Request):
     """
     Turn the tree on.
     """
-    tree.on()
-    publish_state()
+    handle_state_change({"state": "ON"})
     return Response(request, "Tree on")
 
 @server.route("/off")
@@ -175,8 +205,7 @@ def off(request: Request):
     """
     Turn the tree off.
     """
-    tree.off()
-    publish_state()
+    handle_state_change({"state": "OFF"})
     return Response(request, "Tree off")
 
 @server.route("/color/<color>")
@@ -184,8 +213,8 @@ def color(request: Request, color: str):
     """
     Set the tree color.
     """
-    tree.set_color(hex_to_rgb(color))
-    publish_state()
+    rgb = hex_to_rgb(color)
+    handle_state_change({"color": {"r": rgb[0], "g": rgb[1], "b": rgb[2]}})
     return Response(request, f"Tree color set to {color}")
 
 @server.route("/brightness/<brightness>")
@@ -193,8 +222,7 @@ def brightness(request: Request, brightness: str):
     """
     Set the tree brightness.
     """
-    tree.set_brightness(int(brightness) / 100)
-    publish_state()
+    handle_state_change({"brightness": int(brightness)})
     return Response(request, f"Tree brightness set to {brightness}")
 
 @server.route("/effect/<effect>", methods=["POST"])
@@ -209,8 +237,7 @@ def effect(request: Request, effect: str):
         except json.JSONDecodeError:
             return Response(request, "Invalid JSON parameters", status=400)
 
-    tree.set_animation(effect, params)
-    publish_state()
+    handle_state_change({"effect": effect, "effect_params": params})
     return Response(request, "Tree effect set")
 
 @server.route("/pause")
@@ -218,8 +245,7 @@ def pause(request: Request):
     """
     Pause the tree effect.
     """
-    tree.pause()
-    publish_state()
+    handle_state_change({"animation_state": "paused"})
     return Response(request, "Tree effect paused")
 
 @server.route("/resume")
@@ -227,8 +253,7 @@ def resume(request: Request):
     """
     Resume the tree effect.
     """
-    tree.resume()
-    publish_state()
+    handle_state_change({"animation_state": "running"})
     return Response(request, "Tree effect resumed")
 
 @server.route("/speed/<speed>")
@@ -236,8 +261,7 @@ def speed(request: Request, speed: str):
     """
     Set the animation speed.
     """
-    tree.set_speed(float(speed) / 100)
-    publish_state()
+    handle_state_change({"speed": float(speed)})
     return Response(request, f"Tree animation speed set to {speed}")
 
 @server.route("/state")
@@ -256,35 +280,7 @@ def set_state(request: Request):
     """
     try:
         params = json.loads(request.body.decode())
-
-        if "state" in params:
-            if params["state"] == "ON":
-                tree.on()
-            elif params["state"] == "OFF":
-                tree.off()
-
-        if "effect" in params:
-            effect = params["effect"]
-            effect_params = params.get("effect_params", {})
-            tree.set_animation(effect, effect_params)
-        elif "color" in params:
-            # Expect color as RGB dict from HA
-            color = params["color"]
-            if isinstance(color, dict):
-                r = color.get("r", 0)
-                g = color.get("g", 0)
-                b = color.get("b", 0)
-                tree.set_color((r, g, b))
-
-        if "brightness" in params:
-            # Expect brightness as 0-255
-            tree.set_brightness(params["brightness"])
-
-        if "speed" in params:
-            # Expect speed as 0-100
-            tree.set_speed(float(params["speed"]) / 100)
-
-        publish_state()
+        handle_state_change(params)
         return Response(request, json.dumps(tree.state()), content_type="application/json")
     except json.JSONDecodeError:
         return Response(request, "Invalid JSON", status=400)

@@ -6,6 +6,11 @@ class TreeAnimation(Animation):
     self._coordinates = coordinates
     self._bounds = self.bounds()
 
+  @property
+  def frozen(self):
+    """Whether the animation is currently paused."""
+    return self._paused
+
   def bounds(self):
     x, y, z = [
       [i[0] for i in self._coordinates],
