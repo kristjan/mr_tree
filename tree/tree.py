@@ -52,7 +52,7 @@ class Tree:
     """
     print(brightness)
     # Scale 0-1 to 0-0.25 to prevent color distortion at high brightness
-    self.string.brightness = brightness * 0.25
+    self.string.brightness = brightness / 255 * 0.25
     self.string.show()
 
   def next_animation(self):
@@ -174,27 +174,30 @@ class Tree:
     return (0, 0, 0)
 
   def state(self):
-    """Return the current state of the tree as a dictionary."""
-    pixels = [tuple(p) for p in self.string if any(p)]  # Get all non-black pixels
-    current_color = self.calculate_perceived_color(pixels)
+    """Get the current state of the tree.
 
-    # Convert animation-specific parameters back to 0-1 range
-    speed = 0.5  # Default to middle speed
-    if self.animation:
-      if isinstance(self.animation, RainbowCycle):
-        speed = (self.animation.frequency - 0.1) / 1.9
-      elif isinstance(self.animation, Sweep):
-        speed = (self.animation.step - 1) / 9.0
+    Returns:
+        dict: The current state with the following keys:
+            - state: "ON" or "OFF"
+            - brightness: 0-255
+            - color: dict with r, g, b keys (0-255)
+            - effect: current effect name or None
+            - speed: current animation speed (0-100)
+            - available_effects: list of available effects
+    """
+    # Get current color from pixels
+    pixels = [self.string[i] for i in range(len(self.string))]
+    perceived_color = self.calculate_perceived_color(pixels)
 
     return {
-      "on": any(pixels),
-      "brightness": self.string.brightness / 0.25,  # Convert 0-.25 back to 0-1
+      "state": "ON" if self.string.brightness > 0 else "OFF",
+      "brightness": int(self.string.brightness / 0.25 * 255),  # Convert 0-0.25 to 0-255
       "color": {
-        "red": current_color[0],
-        "green": current_color[1],
-        "blue": current_color[2]
+        "r": perceived_color[0],
+        "g": perceived_color[1],
+        "b": perceived_color[2]
       },
       "effect": self.animation.name if self.animation else None,
-      "speed": speed,
+      "speed": int(self.animation.speed * 100) if self.animation else 50,
       "available_effects": self.EFFECTS
     }

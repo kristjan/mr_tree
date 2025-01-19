@@ -111,7 +111,7 @@ def mqtt_message(mqtt_client, topic, message):
                 elif state["state"] == "OFF":
                     tree.off()
             if "brightness" in state:
-                tree.set_brightness(state["brightness"] / 255)  # Convert from 0-255 to 0-1
+                tree.set_brightness(state["brightness"])
             if "color" in state:
                 # Expect RGB dict from HA
                 color = state["color"]
@@ -131,18 +131,8 @@ def publish_state():
     """Publish the current state to MQTT."""
     try:
         tree_state = tree.state()
-        # Convert to HA expected format
-        ha_state = {
-            "state": "ON" if tree_state["on"] else "OFF",
-            "brightness": int(tree_state["brightness"] * 255),  # Convert 0-.25 to 0-255
-            "color": {
-                "r": tree_state["color"]["red"],
-                "g": tree_state["color"]["green"],
-                "b": tree_state["color"]["blue"]
-            },
-            "effect": tree_state["effect"]
-        }
-        message = json.dumps(ha_state)
+        # Tree state is already in HA format, no need to convert
+        message = json.dumps(tree_state)
         print(f"MQTT >> {MQTT_TOPIC_STATE}: {message}")
         mqtt_client.publish(MQTT_TOPIC_STATE, message)
     except Exception as e:
@@ -261,16 +251,16 @@ def get_state(request: Request):
 def set_state(request: Request):
     """
     Set multiple tree attributes at once.
-    Accepts JSON body with any of: on, brightness, color, effect, effect_params
+    Accepts JSON body with any of: state, brightness, color, effect, effect_params
     Returns the new state.
     """
     try:
         params = json.loads(request.body.decode())
 
-        if "on" in params:
-            if params["on"]:
+        if "state" in params:
+            if params["state"] == "ON":
                 tree.on()
-            else:
+            elif params["state"] == "OFF":
                 tree.off()
 
         if "effect" in params:
@@ -278,12 +268,17 @@ def set_state(request: Request):
             effect_params = params.get("effect_params", {})
             tree.set_animation(effect, effect_params)
         elif "color" in params:
-            # Expect color as hex string without #
-            tree.set_color(hex_to_rgb(params["color"]))
+            # Expect color as RGB dict from HA
+            color = params["color"]
+            if isinstance(color, dict):
+                r = color.get("r", 0)
+                g = color.get("g", 0)
+                b = color.get("b", 0)
+                tree.set_color((r, g, b))
 
         if "brightness" in params:
-            # Expect brightness as 0-100
-            tree.set_brightness(int(params["brightness"]) / 100)
+            # Expect brightness as 0-255
+            tree.set_brightness(params["brightness"])
 
         if "speed" in params:
             # Expect speed as 0-100
