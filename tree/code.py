@@ -18,6 +18,7 @@ from effects.sweep import Sweep
 # MQTT topics
 MQTT_TOPIC_STATE = "mr_tree/state"
 MQTT_TOPIC_SET = "mr_tree/set"
+MQTT_TOPIC_AVAILABILITY = "mr_tree/status"  # Dedicated topic for availability
 MQTT_DISCOVERY_PREFIX = "homeassistant"
 MQTT_DISCOVERY_TOPIC = f"{MQTT_DISCOVERY_PREFIX}/light/mr_tree/config"
 
@@ -58,6 +59,14 @@ mqtt_client = MQTT(
     socket_timeout=0.01  # Reduce socket timeout to 10ms
 )
 
+# Set up Last Will and Testament
+mqtt_client.will_set(
+    topic=MQTT_TOPIC_AVAILABILITY,
+    msg="offline",
+    retain=True,  # Retain the message so HA knows state even after restart
+    qos=1  # Use QoS 1 to ensure message delivery
+)
+
 def publish_discovery():
     """Publish MQTT discovery configuration for Home Assistant."""
     device = {
@@ -79,12 +88,15 @@ def publish_discovery():
         "rgb": True,
         "effect": True,
         "effect_list": Tree.EFFECTS,
-        "optimistic": True,
-        "qos": 0,
+        "optimistic": False,  # We want to rely on actual state
+        "qos": 1,  # Use QoS 1 for more reliability
         "retain": True,
         "device": device,
         "json_attributes_topic": MQTT_TOPIC_STATE,
-        "json_attributes_template": "{{ {'animation_state': value_json.animation_state} | tojson }}"
+        "json_attributes_template": "{{ {'animation_state': value_json.animation_state} | tojson }}",
+        "availability_topic": MQTT_TOPIC_AVAILABILITY,
+        "payload_available": "online",
+        "payload_not_available": "offline"
     }
     try:
         print(f"Publishing discovery config to {MQTT_DISCOVERY_TOPIC}")
@@ -98,6 +110,8 @@ def mqtt_connect(mqtt_client, userdata, flags, rc):
     mqtt_client.subscribe(MQTT_TOPIC_SET)
     # Publish discovery configuration
     publish_discovery()
+    # Publish online status
+    mqtt_client.publish(MQTT_TOPIC_AVAILABILITY, "online", retain=True, qos=1)
     # Publish initial state
     publish_state()
 
