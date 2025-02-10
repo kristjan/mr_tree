@@ -5,6 +5,8 @@ import socketpool
 import wifi
 import mdns
 import json
+from microcontroller import watchdog
+from watchdog import WatchDogMode
 from adafruit_httpserver.server import Server, Request, Response
 from adafruit_seesaw.seesaw import Seesaw
 from adafruit_seesaw.rotaryio import IncrementalEncoder
@@ -14,6 +16,11 @@ from adafruit_minimqtt.adafruit_minimqtt import MQTT
 from tree import Tree
 from effects.rainbow_cycle import RainbowCycle
 from effects.sweep import Sweep
+
+# Set up watchdog with a 10 second timeout
+watchdog.timeout = 10.0  # 10 seconds
+watchdog.mode = WatchDogMode.RESET  # Reset the system when watchdog expires
+watchdog.feed()  # Feed it once before starting main program
 
 # MQTT topics
 MQTT_TOPIC_STATE = "mr_tree/state"
@@ -336,6 +343,12 @@ async def handle_mqtt():
                 print(f"MQTT reconnection failed: {e}")
         await asyncio.sleep(0.5)  # Sleep for 500ms between polls
 
+async def handle_watchdog():
+    """Feed the watchdog periodically."""
+    while True:
+        watchdog.feed()
+        await asyncio.sleep(1)
+
 async def main():
     print("Starting server")
     server.start(str(wifi.radio.ipv4_address), 7433)
@@ -352,8 +365,10 @@ async def main():
     encoder_task = asyncio.create_task(handle_encoders())
     print("Creating MQTT task")
     mqtt_task = asyncio.create_task(handle_mqtt())
+    print("Creating watchdog task")
+    watchdog_task = asyncio.create_task(handle_watchdog())
     print("Starting tasks")
-    await asyncio.gather(server_task, animation_task, encoder_task, mqtt_task)
+    await asyncio.gather(server_task, animation_task, encoder_task, mqtt_task, watchdog_task)
     print("Tasks started")
 
 if __name__ == "__main__":
