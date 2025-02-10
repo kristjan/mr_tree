@@ -16,18 +16,18 @@ from adafruit_minimqtt.adafruit_minimqtt import MQTT
 from tree import Tree
 from effects.rainbow_cycle import RainbowCycle
 from effects.sweep import Sweep
+from effects.timer import Timer
+from util.mqtt import (
+    set_mqtt_client, publish_message,
+    MQTT_TOPIC_STATE, MQTT_TOPIC_SET, MQTT_TOPIC_AVAILABILITY,
+    MQTT_DISCOVERY_PREFIX, MQTT_DISCOVERY_TOPIC, MQTT_TIMER_STATE,
+    MQTT_TIMER_SET, MQTT_TIMER_DISCOVERY_TOPIC
+)
 
 # Set up watchdog with a 10 second timeout
 watchdog.timeout = 10.0  # 10 seconds
 watchdog.mode = WatchDogMode.RESET  # Reset the system when watchdog expires
 watchdog.feed()  # Feed it once before starting main program
-
-# MQTT topics
-MQTT_TOPIC_STATE = "mr_tree/state"
-MQTT_TOPIC_SET = "mr_tree/set"
-MQTT_TOPIC_AVAILABILITY = "mr_tree/status"  # Dedicated topic for availability
-MQTT_DISCOVERY_PREFIX = "homeassistant"
-MQTT_DISCOVERY_TOPIC = f"{MQTT_DISCOVERY_PREFIX}/light/mr_tree/config"
 
 print("Creating tree...")
 tree = Tree()
@@ -66,6 +66,9 @@ mqtt_client = MQTT(
     socket_timeout=0.01  # Reduce socket timeout to 10ms
 )
 
+# Initialize MQTT utilities
+set_mqtt_client(mqtt_client)
+
 # Set up Last Will and Testament
 mqtt_client.will_set(
     topic=MQTT_TOPIC_AVAILABILITY,
@@ -85,7 +88,8 @@ def publish_discovery():
         "configuration_url": f"http://{wifi.radio.ipv4_address}:7433"
     }
 
-    config = {
+    # Light config
+    light_config = {
         "name": "Mr Tree Light",
         "unique_id": "mr_tree_light",
         "command_topic": MQTT_TOPIC_SET,
@@ -95,8 +99,8 @@ def publish_discovery():
         "rgb": True,
         "effect": True,
         "effect_list": Tree.EFFECTS,
-        "optimistic": False,  # We want to rely on actual state
-        "qos": 1,  # Use QoS 1 for more reliability
+        "optimistic": False,
+        "qos": 1,
         "retain": True,
         "device": device,
         "json_attributes_topic": MQTT_TOPIC_STATE,
@@ -105,9 +109,95 @@ def publish_discovery():
         "payload_available": "online",
         "payload_not_available": "offline"
     }
+
+    # Timer sensor config
+    timer_config = {
+        "name": "Mr Tree Timer",
+        "unique_id": "mr_tree_timer",
+        "state_topic": MQTT_TIMER_STATE,
+        "device_class": "duration",
+        "unit_of_measurement": "s",
+        "value_template": "{{ value_json.remaining }}",
+        "json_attributes_topic": MQTT_TIMER_STATE,
+        "json_attributes_template": "{{ {'duration': value_json.duration, 'state': value_json.state} | tojson }}",
+        "device": device,
+        "availability_topic": MQTT_TOPIC_AVAILABILITY,
+        "payload_available": "online",
+        "payload_not_available": "offline"
+    }
+
+    # Timer duration number config
+    timer_duration_config = {
+        "name": "Mr Tree Timer Duration",
+        "unique_id": "mr_tree_timer_duration",
+        "command_topic": f"{MQTT_TIMER_SET}/duration",
+        "state_topic": MQTT_TIMER_STATE,
+        "value_template": "{{ value_json.duration }}",
+        "device_class": "duration",
+        "unit_of_measurement": "s",
+        "min": 1,
+        "max": 3600,
+        "step": 1,
+        "device": device,
+        "icon": "mdi:timer-cog",
+        "availability_topic": MQTT_TOPIC_AVAILABILITY,
+        "payload_available": "online",
+        "payload_not_available": "offline"
+    }
+
+    # Timer control buttons
+    timer_buttons = [
+        {
+            "name": "Mr Tree Start Timer",
+            "unique_id": "mr_tree_timer_start",
+            "command_topic": MQTT_TIMER_SET,
+            "payload_press": '{"command": "start"}',  # JSON string
+            "device": device,
+            "icon": "mdi:timer-play",
+            "availability_topic": MQTT_TOPIC_AVAILABILITY,
+            "payload_available": "online",
+            "payload_not_available": "offline"
+        },
+        {
+            "name": "Mr Tree Pause Timer",
+            "unique_id": "mr_tree_timer_pause",
+            "command_topic": MQTT_TIMER_SET,
+            "payload_press": '{"command": "pause"}',  # JSON string
+            "device": device,
+            "icon": "mdi:timer-pause",
+            "availability_topic": MQTT_TOPIC_AVAILABILITY,
+            "payload_available": "online",
+            "payload_not_available": "offline"
+        },
+        {
+            "name": "Mr Tree Cancel Timer",
+            "unique_id": "mr_tree_timer_cancel",
+            "command_topic": MQTT_TIMER_SET,
+            "payload_press": '{"command": "cancel"}',  # JSON string
+            "device": device,
+            "icon": "mdi:timer-off",
+            "availability_topic": MQTT_TOPIC_AVAILABILITY,
+            "payload_available": "online",
+            "payload_not_available": "offline"
+        }
+    ]
+
     try:
         print(f"Publishing discovery config to {MQTT_DISCOVERY_TOPIC}")
-        mqtt_client.publish(MQTT_DISCOVERY_TOPIC, json.dumps(config), retain=True)
+        publish_message(MQTT_DISCOVERY_TOPIC, light_config, retain=True)
+        print(f"Publishing timer discovery config to {MQTT_TIMER_DISCOVERY_TOPIC}")
+        publish_message(MQTT_TIMER_DISCOVERY_TOPIC, timer_config, retain=True)
+
+        # Publish timer duration number
+        topic = f"{MQTT_DISCOVERY_PREFIX}/number/mr_tree/timer_duration/config"
+        print(f"Publishing timer duration config to {topic}")
+        publish_message(topic, timer_duration_config, retain=True)
+
+        # Publish timer control buttons
+        for button in timer_buttons:
+            topic = f"{MQTT_DISCOVERY_PREFIX}/button/mr_tree/{button['unique_id']}/config"
+            print(f"Publishing timer button config to {topic}")
+            publish_message(topic, button, retain=True)
     except Exception as e:
         print(f"Error publishing discovery config: {e}")
 
@@ -115,6 +205,8 @@ def mqtt_connect(mqtt_client, userdata, flags, rc):
     """Handle MQTT connection."""
     print("Connected to MQTT broker!")
     mqtt_client.subscribe(MQTT_TOPIC_SET)
+    mqtt_client.subscribe(MQTT_TIMER_SET)  # Subscribe to timer control topic
+    mqtt_client.subscribe(f"{MQTT_TIMER_SET}/duration")  # Subscribe to timer duration topic
     # Publish discovery configuration
     publish_discovery()
     # Publish online status
@@ -169,15 +261,58 @@ def handle_state_change(state_params):
         print(f"Error handling state change: {e}")
         raise
 
+def handle_timer_message(message):
+    """Handle timer control messages.
+
+    Expected message format:
+    {
+        "command": "start"|"resume"|"pause"|"cancel",
+        "duration": seconds  # Optional, only for start command
+    }
+    """
+    try:
+        data = json.loads(message)
+        command = data.get("command", "").lower()
+
+        # Get current animation if it's a timer
+        current_animation = getattr(tree, "animation", None)
+        is_timer = isinstance(current_animation, Timer)
+
+        if command == "start":
+            duration = data.get("duration", 300)  # Default 5 minutes
+            if not is_timer:
+                tree.set_animation("timer", {"duration": duration})
+            else:
+                current_animation.start()  # Start fresh with current duration
+        elif command == "resume" and is_timer:
+            current_animation.resume()
+        elif command == "pause" and is_timer:
+            current_animation.pause()
+        elif command == "cancel" and is_timer:
+            current_animation.cancel()
+    except Exception as e:
+        print(f"Error handling timer message: {e}")
+
 def mqtt_message(mqtt_client, topic, message):
     """Handle incoming MQTT messages."""
     print(f"MQTT << {topic}: {message}")
-    if topic == MQTT_TOPIC_SET:
-        try:
+    try:
+        if topic == MQTT_TOPIC_SET:
             state = json.loads(message)
             handle_state_change(state)
-        except Exception as e:
-            print(f"Error handling MQTT message: {e}")
+        elif topic == f"{MQTT_TIMER_SET}/duration":
+            # Handle duration number input - only set duration, don't start
+            duration = int(float(message))  # Handle both integer and float inputs
+            print(f"Setting timer duration to {duration} seconds")
+            if isinstance(tree.animation, Timer):
+                tree.animation.set_duration(duration)
+            else:
+                tree.set_animation("timer", {"duration": duration})
+                tree.animation.cancel()  # Immediately cancel to prevent auto-start
+        elif topic == MQTT_TIMER_SET:
+            handle_timer_message(message)
+    except Exception as e:
+        print(f"Error handling MQTT message: {e}")
 
 def publish_state():
     """Publish the current state to MQTT."""

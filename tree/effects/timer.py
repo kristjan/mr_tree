@@ -1,10 +1,20 @@
 import time
+import math
+import json
 import adafruit_led_animation.color as color
 from colorsys import hsv_to_rgb
 from util.tree_animation import TreeAnimation
-import math
+from util.mqtt import publish_message, MQTT_TIMER_STATE
 
 class Timer(TreeAnimation):
+    _instance = None
+    _duration = 300  # Default 5 minutes
+
+    def __new__(cls, *args, **kwargs):
+        if cls._instance is None:
+            cls._instance = super().__new__(cls)
+        return cls._instance
+
     def __init__(self, pixel_object, coordinates, speed, duration, name):
         """Initialize the timer effect.
 
@@ -15,18 +25,59 @@ class Timer(TreeAnimation):
             duration: Timer duration in seconds
             name: Name of the effect
         """
-        super().__init__(pixel_object=pixel_object, coordinates=coordinates, speed=speed, color=color.GREEN, name=name)
-        self.duration = duration
-        self.fade_duration = duration * 0.05  # 5% of timer duration
-        self.start_time = None
-        self.is_running = False
-        self.completion_start = None
-        self.completion_duration = 3.0  # Duration of completion effect in seconds
-        self.pulse_start = time.monotonic()
-        # Store last fill height and time for fade out effect
-        self.last_fill_height = None
-        self.fade_start_times = {}  # Dictionary to track when each LED starts fading
-        self.was_lit = set()  # Track which LEDs were lit in previous frame
+        # Only initialize once
+        if not hasattr(self, '_initialized'):
+            super().__init__(pixel_object=pixel_object, coordinates=coordinates, speed=speed, color=color.GREEN, name=name)
+            self.duration = duration or self._duration  # Use provided duration or stored duration
+            self._duration = self.duration  # Store for future instances
+            self.fade_duration = self.duration * 0.05  # 5% of timer duration
+            self.start_time = None
+            self.pause_time = None  # Track when timer was paused
+            self.elapsed_at_pause = 0  # Track elapsed time when paused
+            self.is_running = False
+            self.is_paused = False
+            self.completion_start = None
+            self.completion_duration = 3.0  # Duration of completion effect in seconds
+            self.pulse_start = time.monotonic()
+            # Store last fill height and time for fade out effect
+            self.last_fill_height = None
+            self.fade_start_times = {}  # Dictionary to track when each LED starts fading
+            self.was_lit = set()  # Track which LEDs were lit in previous frame
+            self._last_state_update = 0  # Track when we last published state
+            self._initialized = True
+
+    def get_state(self):
+        """Get the current state of the timer.
+
+        Returns:
+            dict: The timer state containing:
+                - remaining: seconds remaining (or 0 if not running)
+                - duration: total duration in seconds
+                - state: "active", "idle", or "paused" (HA standard states)
+        """
+        if self.is_paused:
+            remaining = self.duration - self.elapsed_at_pause
+            return {
+                "remaining": int(remaining),
+                "duration": self.duration,
+                "state": "paused"
+            }
+
+        if not self.is_running:
+            return {
+                "remaining": 0,
+                "duration": self.duration,
+                "state": "idle"
+            }
+
+        elapsed = time.monotonic() - self.start_time
+        remaining = max(0, self.duration - elapsed)
+
+        return {
+            "remaining": int(remaining),
+            "duration": self.duration,
+            "state": "active"
+        }
 
     def _get_pulse_brightness(self, z, z_max, z_min, fill_height):
         """Calculate brightness for pulse wave effect."""
@@ -88,10 +139,81 @@ class Timer(TreeAnimation):
         return 0.0
 
     def start(self):
-        """Start the timer."""
+        """Start the timer from the beginning."""
+        # Always start fresh
         self.start_time = time.monotonic()
         self.is_running = True
+        self.is_paused = False
         self.completion_start = None
+        self.elapsed_at_pause = 0
+        self.pause_time = None
+        # Call parent class resume method to ensure animation runs
+        self.resume()
+
+        # Publish initial state
+        try:
+            publish_message(MQTT_TIMER_STATE, self.get_state())
+            self._last_state_update = time.monotonic()
+        except Exception as e:
+            print(f"Error publishing timer state: {e}")
+
+    def resume(self):
+        """Resume the timer from paused state."""
+        if self.is_paused:
+            # Resume from pause - adjust start_time to account for pause duration
+            pause_duration = time.monotonic() - self.pause_time
+            self.start_time += pause_duration
+            self.is_paused = False
+            # Call parent class resume method
+            super().resume()
+            try:
+                publish_message(MQTT_TIMER_STATE, self.get_state())
+                self._last_state_update = time.monotonic()
+            except Exception as e:
+                print(f"Error publishing timer state: {e}")
+
+    def set_duration(self, duration):
+        """Set the timer duration without starting it."""
+        self.duration = duration
+        self._duration = duration  # Store in class variable
+        self.fade_duration = duration * 0.05  # 5% of timer duration
+        # If timer is not running, publish the new state
+        if not self.is_running:
+            try:
+                publish_message(MQTT_TIMER_STATE, self.get_state())
+                self._last_state_update = time.monotonic()
+            except Exception as e:
+                print(f"Error publishing timer state: {e}")
+
+    def pause(self):
+        """Pause the timer."""
+        if self.is_running and not self.is_paused:
+            self.is_paused = True
+            self.pause_time = time.monotonic()
+            self.elapsed_at_pause = time.monotonic() - self.start_time
+            # Call parent class pause method
+            self.freeze()
+            try:
+                publish_message(MQTT_TIMER_STATE, self.get_state())
+                self._last_state_update = time.monotonic()
+            except Exception as e:
+                print(f"Error publishing timer state: {e}")
+
+    def cancel(self):
+        """Cancel the timer."""
+        self.is_running = False
+        self.is_paused = False
+        self.start_time = None
+        self.pause_time = None
+        self.elapsed_at_pause = 0
+        self.completion_start = None
+        # Call parent class pause method to stop animation
+        self.freeze()
+        try:
+            publish_message(MQTT_TIMER_STATE, self.get_state())
+            self._last_state_update = time.monotonic()
+        except Exception as e:
+            print(f"Error publishing timer state: {e}")
 
     def draw(self):
         if not self.is_running:
@@ -104,6 +226,15 @@ class Timer(TreeAnimation):
         elapsed = time.monotonic() - self.start_time
         remaining = max(0, self.duration - elapsed)
         progress = remaining / self.duration
+
+        # Publish state update every second
+        now = time.monotonic()
+        if now - self._last_state_update >= 1.0:
+            try:
+                publish_message(MQTT_TIMER_STATE, self.get_state())
+                self._last_state_update = now
+            except Exception as e:
+                print(f"Error publishing timer state: {e}")
 
         # Get z-coordinate bounds
         z_min, z_max = self._bounds[2]
@@ -151,6 +282,12 @@ class Timer(TreeAnimation):
         if remaining <= 0:
             self.is_running = False
             self.completion_start = time.monotonic()
+            # Publish completion state
+            try:
+                publish_message(MQTT_TIMER_STATE, self.get_state())
+                self._last_state_update = time.monotonic()
+            except Exception as e:
+                print(f"Error publishing timer state: {e}")
 
     def _draw_completion_effect(self):
         """Draw a continuous rainbow wave moving up the tree, pausing when fully lit."""
@@ -182,3 +319,8 @@ class Timer(TreeAnimation):
                     self.pixel_object[i] = rgb
                 else:
                     self.pixel_object[i] = color.BLACK
+
+    @classmethod
+    def get_duration(cls):
+        """Get the stored duration."""
+        return cls._duration
