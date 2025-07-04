@@ -77,6 +77,21 @@ mqtt_client.will_set(
     qos=1  # Use QoS 1 to ensure message delivery
 )
 
+def cleanup_old_discovery():
+    """Send empty discovery messages to remove old entities with redundant names."""
+    old_topics = [
+        f"{MQTT_DISCOVERY_PREFIX}/light/mr_tree/mr_tree_light/config",
+        f"{MQTT_DISCOVERY_PREFIX}/sensor/mr_tree_timer/mr_tree_timer/config",
+        f"{MQTT_DISCOVERY_PREFIX}/number/mr_tree/mr_tree_timer_duration/config",
+        f"{MQTT_DISCOVERY_PREFIX}/button/mr_tree/mr_tree_timer_start/config",
+        f"{MQTT_DISCOVERY_PREFIX}/button/mr_tree/mr_tree_timer_pause/config",
+        f"{MQTT_DISCOVERY_PREFIX}/button/mr_tree/mr_tree_timer_cancel/config"
+    ]
+
+    for topic in old_topics:
+        publish_message(topic, "", retain=True)
+        print(f"Sent cleanup message to {topic}")
+
 def publish_discovery():
     """Publish MQTT discovery configuration for Home Assistant."""
     device = {
@@ -90,8 +105,8 @@ def publish_discovery():
 
     # Light config
     light_config = {
-        "name": "Mr Tree Light",
-        "unique_id": "mr_tree_light",
+        "name": "Light",
+        "unique_id": "light",
         "command_topic": MQTT_TOPIC_SET,
         "state_topic": MQTT_TOPIC_STATE,
         "schema": "json",
@@ -113,8 +128,8 @@ def publish_discovery():
 
     # Timer sensor config
     timer_config = {
-        "name": "Mr Tree Timer",
-        "unique_id": "mr_tree_timer",
+        "name": "Timer",
+        "unique_id": "timer",
         "state_topic": MQTT_TIMER_STATE,
         "device_class": "duration",
         "unit_of_measurement": "s",
@@ -129,8 +144,8 @@ def publish_discovery():
 
     # Timer duration number config
     timer_duration_config = {
-        "name": "Mr Tree Timer Duration",
-        "unique_id": "mr_tree_timer_duration",
+        "name": "Timer Duration",
+        "unique_id": "timer_duration",
         "command_topic": f"{MQTT_TIMER_SET}/duration",
         "state_topic": MQTT_TIMER_STATE,
         "value_template": "{{ value_json.duration }}",
@@ -149,8 +164,8 @@ def publish_discovery():
     # Timer control buttons
     timer_buttons = [
         {
-            "name": "Mr Tree Start Timer",
-            "unique_id": "mr_tree_timer_start",
+            "name": "Start Timer",
+            "unique_id": "timer_start",
             "command_topic": MQTT_TIMER_SET,
             "payload_press": '{"command": "start"}',  # JSON string
             "device": device,
@@ -160,8 +175,8 @@ def publish_discovery():
             "payload_not_available": "offline"
         },
         {
-            "name": "Mr Tree Pause Timer",
-            "unique_id": "mr_tree_timer_pause",
+            "name": "Pause Timer",
+            "unique_id": "timer_pause",
             "command_topic": MQTT_TIMER_SET,
             "payload_press": '{"command": "pause"}',  # JSON string
             "device": device,
@@ -171,8 +186,8 @@ def publish_discovery():
             "payload_not_available": "offline"
         },
         {
-            "name": "Mr Tree Cancel Timer",
-            "unique_id": "mr_tree_timer_cancel",
+            "name": "Cancel Timer",
+            "unique_id": "timer_cancel",
             "command_topic": MQTT_TIMER_SET,
             "payload_press": '{"command": "cancel"}',  # JSON string
             "device": device,
@@ -208,6 +223,8 @@ def mqtt_connect(mqtt_client, userdata, flags, rc):
     mqtt_client.subscribe(MQTT_TOPIC_SET)
     mqtt_client.subscribe(MQTT_TIMER_SET)  # Subscribe to timer control topic
     mqtt_client.subscribe(f"{MQTT_TIMER_SET}/duration")  # Subscribe to timer duration topic
+    # Clean up old discovery messages first
+    cleanup_old_discovery()
     # Publish discovery configuration
     publish_discovery()
     # Publish online status
