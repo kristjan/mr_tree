@@ -34,8 +34,7 @@ class Tree:
     """Turn the tree on by restoring previous brightness."""
     self.string.brightness = self.previous_brightness
     self.string.show()
-    if self.animation:
-      self.resume()
+    # Don't automatically resume animations - let them be controlled explicitly
 
   def off(self):
     """Turn the tree off by setting brightness to 0 while preserving state."""
