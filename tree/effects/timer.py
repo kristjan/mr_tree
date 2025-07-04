@@ -7,13 +7,7 @@ from util.tree_animation import TreeAnimation
 from util.mqtt import publish_message, MQTT_TIMER_STATE
 
 class Timer(TreeAnimation):
-    _instance = None
-    _duration = 300  # Default 5 minutes
-
-    def __new__(cls, *args, **kwargs):
-        if cls._instance is None:
-            cls._instance = super().__new__(cls)
-        return cls._instance
+    _duration = 300  # Default 5 minutes (class variable for storing default)
 
     def __init__(self, pixel_object, coordinates, speed, duration, name):
         """Initialize the timer effect.
@@ -25,26 +19,23 @@ class Timer(TreeAnimation):
             duration: Timer duration in seconds
             name: Name of the effect
         """
-        # Only initialize once
-        if not hasattr(self, '_initialized'):
-            super().__init__(pixel_object=pixel_object, coordinates=coordinates, speed=speed, color=color.GREEN, name=name)
-            self.duration = duration or self._duration  # Use provided duration or stored duration
-            self._duration = self.duration  # Store for future instances
-            self.fade_duration = self.duration * 0.05  # 5% of timer duration
-            self.start_time = None
-            self.pause_time = None  # Track when timer was paused
-            self.elapsed_at_pause = 0  # Track elapsed time when paused
-            self.is_running = False
-            self.is_paused = False
-            self.completion_start = None
-            self.completion_duration = 3.0  # Duration of completion effect in seconds
-            self.pulse_start = time.monotonic()
-            # Store last fill height and time for fade out effect
-            self.last_fill_height = None
-            self.fade_start_times = {}  # Dictionary to track when each LED starts fading
-            self.was_lit = set()  # Track which LEDs were lit in previous frame
-            self._last_state_update = 0  # Track when we last published state
-            self._initialized = True
+        super().__init__(pixel_object=pixel_object, coordinates=coordinates, speed=speed, color=color.GREEN, name=name)
+        self.duration = duration or self._duration
+        self._duration = self.duration  # Store for future instances
+        self.fade_duration = self.duration * 0.05  # 5% of timer duration
+        self.start_time = None
+        self.pause_time = None  # Track when timer was paused
+        self.elapsed_at_pause = 0  # Track elapsed time when paused
+        self.is_running = False
+        self.is_paused = False
+        self.completion_start = None
+        self.completion_duration = 3.0  # Duration of completion effect in seconds
+        self.pulse_start = time.monotonic()
+        # Store last fill height and time for fade out effect
+        self.last_fill_height = None
+        self.fade_start_times = {}  # Dictionary to track when each LED starts fading
+        self.was_lit = set()  # Track which LEDs were lit in previous frame
+        self._last_state_update = 0  # Track when we last published state
 
     def get_state(self):
         """Get the current state of the timer.
@@ -147,7 +138,8 @@ class Timer(TreeAnimation):
         self.completion_start = None
         self.elapsed_at_pause = 0
         self.pause_time = None
-        # Call parent class resume method to ensure animation runs
+
+        # Ensure animation is unfrozen and running
         self.resume()
 
         # Publish initial state
@@ -164,13 +156,14 @@ class Timer(TreeAnimation):
             pause_duration = time.monotonic() - self.pause_time
             self.start_time += pause_duration
             self.is_paused = False
-            # Call parent class resume method
-            super().resume()
             try:
                 publish_message(MQTT_TIMER_STATE, self.get_state())
                 self._last_state_update = time.monotonic()
             except Exception as e:
                 print(f"Error publishing timer state: {e}")
+
+        # Always call parent class resume method to ensure animation is unfrozen
+        super().resume()
 
     def set_duration(self, duration):
         """Set the timer duration without starting it."""

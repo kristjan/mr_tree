@@ -117,7 +117,7 @@ class Tree:
           # Default 5 minute timer if not specified
           duration = int(params.get('duration', 300))
           timer = Timer(self.string, self.coordinates, speed=0.01, duration=duration, name='timer')
-          timer.start()  # Start the timer immediately
+          # Don't auto-start the timer - let it be started explicitly
           return timer
       else:
           raise ValueError(f"Unknown effect: {effect_name}")

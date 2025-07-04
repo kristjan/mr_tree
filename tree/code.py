@@ -280,11 +280,17 @@ def handle_timer_message(message):
         is_timer = isinstance(current_animation, Timer)
 
         if command == "start":
-            duration = data.get("duration", 300)  # Default 5 minutes
-            if not is_timer:
-                tree.set_animation("timer", {"duration": duration})
+            # Use duration from message, or from existing timer, or default to 300
+            if "duration" in data:
+                duration = data["duration"]
+            elif is_timer:
+                duration = current_animation.duration
             else:
-                current_animation.start()  # Start fresh with current duration
+                duration = 300  # Default 5 minutes
+
+            # Always create a fresh timer instance when starting
+            tree.set_animation("timer", {"duration": duration})
+            tree.animation.start()
         elif command == "resume" and is_timer:
             current_animation.resume()
         elif command == "pause" and is_timer:
@@ -302,14 +308,14 @@ def mqtt_message(mqtt_client, topic, message):
             state = json.loads(message)
             handle_state_change(state)
         elif topic == f"{MQTT_TIMER_SET}/duration":
-            # Handle duration number input - only set duration, don't start
+            # Handle duration number input - only set duration, don't start or cancel
             duration = int(float(message))  # Handle both integer and float inputs
             print(f"Setting timer duration to {duration} seconds")
             if isinstance(tree.animation, Timer):
                 tree.animation.set_duration(duration)
             else:
+                # Create a timer with the specified duration but don't start it
                 tree.set_animation("timer", {"duration": duration})
-                tree.animation.cancel()  # Immediately cancel to prevent auto-start
         elif topic == MQTT_TIMER_SET:
             handle_timer_message(message)
     except Exception as e:
@@ -441,6 +447,83 @@ def set_state(request: Request):
         return Response(request, json.dumps(tree.state()), content_type="application/json")
     except json.JSONDecodeError:
         return Response(request, "Invalid JSON", status=400)
+    except Exception as e:
+        return Response(request, f"Error: {str(e)}", status=400)
+
+@server.route("/timer/start", methods=["POST"])
+def timer_start(request: Request):
+    """
+    Start a timer with optional duration.
+    Accepts JSON body with: duration (optional, defaults to 300 seconds)
+    """
+    try:
+        duration = 300  # Default 5 minutes
+        if request.body:
+            params = json.loads(request.body.decode())
+            duration = params.get("duration", 300)
+
+        # Create fresh timer and start it
+        tree.set_animation("timer", {"duration": duration})
+        tree.animation.start()
+
+        return Response(request, json.dumps({"message": f"Timer started for {duration} seconds"}), content_type="application/json")
+    except json.JSONDecodeError:
+        return Response(request, "Invalid JSON", status=400)
+    except Exception as e:
+        return Response(request, f"Error: {str(e)}", status=400)
+
+@server.route("/timer/pause", methods=["POST"])
+def timer_pause(request: Request):
+    """
+    Pause the current timer.
+    """
+    try:
+        if isinstance(tree.animation, Timer):
+            tree.animation.pause()
+            return Response(request, json.dumps({"message": "Timer paused"}), content_type="application/json")
+        else:
+            return Response(request, "No timer running", status=400)
+    except Exception as e:
+        return Response(request, f"Error: {str(e)}", status=400)
+
+@server.route("/timer/resume", methods=["POST"])
+def timer_resume(request: Request):
+    """
+    Resume the current timer.
+    """
+    try:
+        if isinstance(tree.animation, Timer):
+            tree.animation.resume()
+            return Response(request, json.dumps({"message": "Timer resumed"}), content_type="application/json")
+        else:
+            return Response(request, "No timer running", status=400)
+    except Exception as e:
+        return Response(request, f"Error: {str(e)}", status=400)
+
+@server.route("/timer/cancel", methods=["POST"])
+def timer_cancel(request: Request):
+    """
+    Cancel the current timer.
+    """
+    try:
+        if isinstance(tree.animation, Timer):
+            tree.animation.cancel()
+            return Response(request, json.dumps({"message": "Timer cancelled"}), content_type="application/json")
+        else:
+            return Response(request, "No timer running", status=400)
+    except Exception as e:
+        return Response(request, f"Error: {str(e)}", status=400)
+
+@server.route("/timer/state")
+def timer_state(request: Request):
+    """
+    Get the current timer state.
+    """
+    try:
+        if isinstance(tree.animation, Timer):
+            return Response(request, json.dumps(tree.animation.get_state()), content_type="application/json")
+        else:
+            return Response(request, json.dumps({"remaining": 0, "duration": 0, "state": "idle"}), content_type="application/json")
     except Exception as e:
         return Response(request, f"Error: {str(e)}", status=400)
 
