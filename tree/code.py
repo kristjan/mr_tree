@@ -152,7 +152,7 @@ def publish_discovery():
         "device_class": "duration",
         "unit_of_measurement": "s",
         "min": 1,
-        "max": 3600,
+        "max": 86400,  # 24 hours (full day)
         "step": 1,
         "device": device,
         "icon": "mdi:timer-cog",
