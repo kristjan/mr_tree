@@ -192,9 +192,12 @@ class Tree:
             - available_effects: list of available effects
             - animation_state: "paused" or "running"
     """
-    # Get current color from pixels
-    pixels = [self.string[i] for i in range(len(self.string))]
-    perceived_color = self.calculate_perceived_color(pixels)
+    # Get current color from pixels - avoid creating new list to prevent memory fragmentation
+    # Sample a few pixels instead of all 100 to reduce memory usage
+    sample_pixels = []
+    for i in range(0, len(self.string), max(1, len(self.string) // 10)):  # Sample every 10th pixel
+        sample_pixels.append(self.string[i])
+    perceived_color = self.calculate_perceived_color(sample_pixels)
 
     return {
       "state": "ON" if self.string.brightness > 0 else "OFF",

@@ -550,7 +550,7 @@ def hex_to_rgb(hex):
 async def handle_requests():
     while True:
         server.poll()
-        await asyncio.sleep(0)
+        await asyncio.sleep(0.01)  # Actually sleep for 10ms to prevent busy loop
 
 async def handle_encoders():
     last_positions = [0, 0, 0]
@@ -569,11 +569,12 @@ async def handle_mqtt():
     """Handle MQTT message loop."""
     while True:
         try:
-            mqtt_client.loop(timeout=0.01)  # Reduce loop timeout to 10ms
+            mqtt_client.loop(timeout=0.1)  # Increase timeout to 100ms for stability
         except Exception as e:
             print(f"MQTT error: {e}")
-            # Try to reconnect
+            # Try to reconnect with backoff
             try:
+                await asyncio.sleep(1)  # Wait before reconnecting
                 mqtt_client.reconnect()
             except Exception as e:
                 print(f"MQTT reconnection failed: {e}")
@@ -581,9 +582,26 @@ async def handle_mqtt():
 
 async def handle_watchdog():
     """Feed the watchdog periodically."""
+    feed_count = 0
     while True:
-        watchdog.feed()
+        try:
+            watchdog.feed()
+            feed_count += 1
+            if feed_count % 30 == 0:  # Log every 30 seconds
+                print(f"Watchdog fed {feed_count} times")
+        except Exception as e:
+            print(f"Watchdog feed error: {e}")
         await asyncio.sleep(1)
+
+async def handle_timer_updates():
+    """Handle periodic timer state updates via MQTT."""
+    while True:
+        try:
+            if isinstance(tree.animation, Timer):
+                publish_message(MQTT_TIMER_STATE, tree.animation.get_state())
+        except Exception as e:
+            print(f"Error publishing timer state: {e}")
+        await asyncio.sleep(1)  # Update every second
 
 async def main():
     print("Starting server")
@@ -601,10 +619,18 @@ async def main():
     encoder_task = asyncio.create_task(handle_encoders())
     print("Creating MQTT task")
     mqtt_task = asyncio.create_task(handle_mqtt())
+    print("Creating timer updates task")
+    timer_task = asyncio.create_task(handle_timer_updates())
     print("Creating watchdog task")
     watchdog_task = asyncio.create_task(handle_watchdog())
     print("Starting tasks")
-    await asyncio.gather(server_task, animation_task, encoder_task, mqtt_task, watchdog_task)
+    try:
+        await asyncio.gather(server_task, animation_task, encoder_task, mqtt_task, timer_task, watchdog_task)
+    except Exception as e:
+        print(f"Critical error in main loop: {e}")
+        # Feed watchdog one more time before potentially restarting
+        watchdog.feed()
+        raise  # Re-raise to trigger restart
     print("Tasks started")
 
 if __name__ == "__main__":

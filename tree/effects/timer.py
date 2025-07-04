@@ -220,14 +220,8 @@ class Timer(TreeAnimation):
         remaining = max(0, self.duration - elapsed)
         progress = remaining / self.duration
 
-        # Publish state update every second
-        now = time.monotonic()
-        if now - self._last_state_update >= 1.0:
-            try:
-                publish_message(MQTT_TIMER_STATE, self.get_state())
-                self._last_state_update = now
-            except Exception as e:
-                print(f"Error publishing timer state: {e}")
+        # NOTE: Removed MQTT publishing from draw() to prevent blocking during animation
+        # State updates are now handled by the main loop polling get_state() periodically
 
         # Get z-coordinate bounds
         z_min, z_max = self._bounds[2]
@@ -275,12 +269,7 @@ class Timer(TreeAnimation):
         if remaining <= 0:
             self.is_running = False
             self.completion_start = time.monotonic()
-            # Publish completion state
-            try:
-                publish_message(MQTT_TIMER_STATE, self.get_state())
-                self._last_state_update = time.monotonic()
-            except Exception as e:
-                print(f"Error publishing timer state: {e}")
+            # Let the main loop handle state publishing instead of doing it here
 
     def _draw_completion_effect(self):
         """Draw a continuous rainbow wave moving up the tree, pausing when fully lit."""
