@@ -204,6 +204,7 @@ class Tree:
         "g": perceived_color[1],
         "b": perceived_color[2]
       },
+      "color_mode": "rgb",
       "effect": self.animation.name if self.animation else None,
       "speed": int(self.animation.speed * 100) if self.animation else 50,
       "available_effects": self.EFFECTS,

@@ -99,6 +99,7 @@ def publish_discovery():
         "rgb": True,
         "effect": True,
         "effect_list": Tree.EFFECTS,
+        "supported_color_modes": ["rgb"],
         "optimistic": False,
         "qos": 1,
         "retain": True,
