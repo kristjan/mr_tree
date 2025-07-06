@@ -44,6 +44,10 @@ class Tree:
     self.string.brightness = 0
     self.string.show()
 
+  def is_on(self):
+    """Check if the tree is currently on (brightness > 0)."""
+    return self.string.brightness > 0
+
   def set_color(self, color):
     self.pause()
     self.string.fill(color)

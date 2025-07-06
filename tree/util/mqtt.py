@@ -40,5 +40,8 @@ def publish_message(topic, message, retain=False):
         if isinstance(message, dict):
             message = json.dumps(message)
         mqtt_client.publish(topic, message, retain=retain)
+        print(f"MQTT >> {topic}: {message}")
     except Exception as e:
-        print(f"Error publishing MQTT message: {e}")
+        print(f"Error publishing MQTT message to {topic}: {e}")
+        print(f"Message content: {message}")
+        print(f"Retain flag: {retain}")

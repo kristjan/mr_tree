@@ -63,7 +63,7 @@ mqtt_client = MQTT(
     username=os.getenv("MQTT_USERNAME"),
     password=os.getenv("MQTT_PASSWORD"),
     socket_pool=pool,
-    socket_timeout=0.01  # Reduce socket timeout to 10ms
+    socket_timeout=1.0  # Increase from 0.01 to 1.0 seconds for stability
 )
 
 # Initialize MQTT utilities
@@ -201,6 +201,7 @@ def publish_discovery():
     try:
         print(f"Publishing discovery config to {MQTT_DISCOVERY_TOPIC}")
         publish_message(MQTT_DISCOVERY_TOPIC, light_config, retain=True)
+
         print(f"Publishing timer discovery config to {MQTT_TIMER_DISCOVERY_TOPIC}")
         publish_message(MQTT_TIMER_DISCOVERY_TOPIC, timer_config, retain=True)
 
@@ -214,22 +215,39 @@ def publish_discovery():
             topic = f"{MQTT_DISCOVERY_PREFIX}/button/mr_tree/{button['unique_id']}/config"
             print(f"Publishing timer button config to {topic}")
             publish_message(topic, button, retain=True)
+
+        print("All discovery configurations published successfully!")
     except Exception as e:
         print(f"Error publishing discovery config: {e}")
+        import traceback
+        traceback.print_exc()
 
 def mqtt_connect(mqtt_client, userdata, flags, rc):
     """Handle MQTT connection."""
-    print("Connected to MQTT broker!")
+    print(f"Connected to MQTT broker! (rc={rc})")
+    print(f"Subscribing to topics:")
+    print(f"  - {MQTT_TOPIC_SET}")
+    print(f"  - {MQTT_TIMER_SET}")
+    print(f"  - {MQTT_TIMER_SET}/duration")
+
     mqtt_client.subscribe(MQTT_TOPIC_SET)
     mqtt_client.subscribe(MQTT_TIMER_SET)  # Subscribe to timer control topic
     mqtt_client.subscribe(f"{MQTT_TIMER_SET}/duration")  # Subscribe to timer duration topic
+
     # Clean up old discovery messages first
+    print("Cleaning up old discovery messages...")
     cleanup_old_discovery()
+
     # Publish discovery configuration
+    print("Publishing discovery configuration...")
     publish_discovery()
+
     # Publish online status
-    mqtt_client.publish(MQTT_TOPIC_AVAILABILITY, "online", retain=True, qos=1)
+    print("Publishing online status...")
+    publish_message(MQTT_TOPIC_AVAILABILITY, "online", retain=True)
+
     # Publish initial state
+    print("Publishing initial state...")
     publish_state()
 
 def handle_state_change(state_params):
@@ -305,6 +323,11 @@ def handle_timer_message(message):
             else:
                 duration = 300  # Default 5 minutes
 
+            # Ensure tree is on when starting a timer
+            if not tree.is_on():
+                tree.on()
+                publish_state()  # Notify MQTT subscribers of state change
+
             # Always create a fresh timer instance when starting
             tree.set_animation("timer", {"duration": duration})
             tree.animation.start()
@@ -343,9 +366,7 @@ def publish_state():
     try:
         tree_state = tree.state()
         # Tree state is already in HA format, no need to convert
-        message = json.dumps(tree_state)
-        print(f"MQTT >> {MQTT_TOPIC_STATE}: {message}")
-        mqtt_client.publish(MQTT_TOPIC_STATE, message)
+        publish_message(MQTT_TOPIC_STATE, tree_state)
     except Exception as e:
         print(f"Error publishing state: {e}")
 
@@ -479,6 +500,11 @@ def timer_start(request: Request):
             params = json.loads(request.body.decode())
             duration = params.get("duration", 300)
 
+        # Ensure tree is on when starting a timer
+        if not tree.is_on():
+            tree.on()
+            publish_state()  # Notify MQTT subscribers of state change
+
         # Create fresh timer and start it
         tree.set_animation("timer", {"duration": duration})
         tree.animation.start()
@@ -567,18 +593,34 @@ async def handle_encoders():
 
 async def handle_mqtt():
     """Handle MQTT message loop."""
+    connection_retries = 0
+    max_retries = 5
+
     while True:
         try:
-            mqtt_client.loop(timeout=0.1)  # Increase timeout to 100ms for stability
+            mqtt_client.loop(timeout=1.5)  # Must be >= socket timeout (1.0s)
+            connection_retries = 0  # Reset retry counter on successful loop
         except Exception as e:
             print(f"MQTT error: {e}")
-            # Try to reconnect with backoff
-            try:
-                await asyncio.sleep(1)  # Wait before reconnecting
-                mqtt_client.reconnect()
-            except Exception as e:
-                print(f"MQTT reconnection failed: {e}")
-        await asyncio.sleep(0.5)  # Sleep for 500ms between polls
+            connection_retries += 1
+
+            if connection_retries <= max_retries:
+                # Try to reconnect with exponential backoff
+                backoff_time = min(2 ** connection_retries, 30)  # Cap at 30 seconds
+                print(f"MQTT reconnection attempt {connection_retries}/{max_retries} in {backoff_time}s")
+                await asyncio.sleep(backoff_time)
+
+                try:
+                    mqtt_client.reconnect()
+                    print("MQTT reconnected successfully")
+                except Exception as reconnect_error:
+                    print(f"MQTT reconnection failed: {reconnect_error}")
+            else:
+                print("MQTT max retries exceeded, continuing with degraded functionality")
+                await asyncio.sleep(30)  # Wait longer before trying again
+                connection_retries = 0  # Reset counter for next batch of attempts
+
+        await asyncio.sleep(0.1)  # Shorter sleep between polls for responsiveness
 
 async def handle_watchdog():
     """Feed the watchdog periodically."""
@@ -603,14 +645,39 @@ async def handle_timer_updates():
             print(f"Error publishing timer state: {e}")
         await asyncio.sleep(1)  # Update every second
 
+async def handle_availability_heartbeat():
+    """Send periodic availability heartbeat to maintain online status."""
+    while True:
+        try:
+            # Send availability heartbeat every 30 seconds
+            publish_message(MQTT_TOPIC_AVAILABILITY, "online", retain=True)
+            print("Sent availability heartbeat")
+        except Exception as e:
+            print(f"Error sending availability heartbeat: {e}")
+        await asyncio.sleep(30)
+
 async def main():
     print("Starting server")
     server.start(str(wifi.radio.ipv4_address), 7433)
     print("Connecting to MQTT broker...")
-    try:
-        mqtt_client.connect()
-    except Exception as e:
-        print(f"Failed to connect to MQTT broker: {e}")
+
+    # Try to connect to MQTT with retries
+    mqtt_connected = False
+    for attempt in range(3):
+        try:
+            mqtt_client.connect()
+            mqtt_connected = True
+            print("Successfully connected to MQTT broker!")
+            break
+        except Exception as e:
+            print(f"MQTT connection attempt {attempt + 1}/3 failed: {e}")
+            if attempt < 2:  # Don't sleep on the last attempt
+                await asyncio.sleep(2)
+
+    if not mqtt_connected:
+        print("WARNING: Failed to connect to MQTT broker after 3 attempts")
+        print("Device will continue with degraded functionality (no Home Assistant integration)")
+
     print("Creating server task")
     server_task = asyncio.create_task(handle_requests())
     print("Creating animation task")
@@ -621,11 +688,13 @@ async def main():
     mqtt_task = asyncio.create_task(handle_mqtt())
     print("Creating timer updates task")
     timer_task = asyncio.create_task(handle_timer_updates())
+    print("Creating availability heartbeat task")
+    heartbeat_task = asyncio.create_task(handle_availability_heartbeat())
     print("Creating watchdog task")
     watchdog_task = asyncio.create_task(handle_watchdog())
     print("Starting tasks")
     try:
-        await asyncio.gather(server_task, animation_task, encoder_task, mqtt_task, timer_task, watchdog_task)
+        await asyncio.gather(server_task, animation_task, encoder_task, mqtt_task, timer_task, heartbeat_task, watchdog_task)
     except Exception as e:
         print(f"Critical error in main loop: {e}")
         # Feed watchdog one more time before potentially restarting
