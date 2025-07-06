@@ -32,6 +32,10 @@ class Tree:
 
   def on(self):
     """Turn the tree on by restoring previous brightness."""
+    # If all pixels are black, set a default color so HA ON command works
+    if all(pixel == (0, 0, 0) for pixel in self.string):
+      self.string.fill((51, 51, 51))  # 20% white
+
     self.string.brightness = self.previous_brightness
     self.string.show()
     # Don't automatically resume animations - let them be controlled explicitly
