@@ -63,7 +63,7 @@ mqtt_client = MQTT(
     username=os.getenv("MQTT_USERNAME"),
     password=os.getenv("MQTT_PASSWORD"),
     socket_pool=pool,
-    socket_timeout=1.0  # Increase from 0.01 to 1.0 seconds for stability
+    socket_timeout=0.02  # 20ms timeout for smooth 30fps animation
 )
 
 # Initialize MQTT utilities
@@ -576,7 +576,7 @@ def hex_to_rgb(hex):
 async def handle_requests():
     while True:
         server.poll()
-        await asyncio.sleep(0.01)  # Actually sleep for 10ms to prevent busy loop
+        await asyncio.sleep(0)  # Yield control immediately to other tasks
 
 async def handle_encoders():
     last_positions = [0, 0, 0]
@@ -598,7 +598,7 @@ async def handle_mqtt():
 
     while True:
         try:
-            mqtt_client.loop(timeout=1.5)  # Must be >= socket timeout (1.0s)
+            mqtt_client.loop(timeout=0.02)  # Must be >= socket timeout (0.02s)
             connection_retries = 0  # Reset retry counter on successful loop
         except Exception as e:
             print(f"MQTT error: {e}")
@@ -620,7 +620,7 @@ async def handle_mqtt():
                 await asyncio.sleep(30)  # Wait longer before trying again
                 connection_retries = 0  # Reset counter for next batch of attempts
 
-        await asyncio.sleep(0.1)  # Shorter sleep between polls for responsiveness
+        await asyncio.sleep(0.01)  # Short sleep to allow animation task to run frequently
 
 async def handle_watchdog():
     """Feed the watchdog periodically."""
