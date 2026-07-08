@@ -77,7 +77,7 @@ Plays one animation from the library (currently `rainbow_cycle`, `sweep`).
 - **Right turn** → the animation's one character parameter:
   - `sweep` → hue (color of the sweep band).
   - `rainbow_cycle` → bandwidth: 0.1 (≈one color over the whole tree, next sweeping
-    up from the bottom) to 4.0 (four full color cycles across the height).
+    up from the bottom) to 2.0 (two full color cycles across the height).
 - Dial LEDs: left = current animation's signature color; center brightness ∝ speed;
   right = the param's hue/level.
 

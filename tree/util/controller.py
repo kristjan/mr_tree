@@ -274,8 +274,8 @@ class Controller:
             self.sweep_hue = (self.sweep_hue + delta * 0.03) % 1.0
         elif name == "rainbow_cycle":
             # 0.1 => the whole tree is ~one color with the next sweeping up from the
-            # bottom; 4.0 => four full color cycles across the height.
-            self.rainbow_bandwidth = _clampf(self.rainbow_bandwidth + delta * 0.2, 0.1, 4.0)
+            # bottom; 2.0 => two full color cycles across the height.
+            self.rainbow_bandwidth = _clampf(self.rainbow_bandwidth + delta * 0.2, 0.1, 2.0)
         elif name == "cherry_blossom":
             self.pink_fraction = _clampf(self.pink_fraction + delta * 0.05, 0.1, 0.9)
         self._apply_anim_param()
