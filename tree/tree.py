@@ -57,6 +57,21 @@ class Tree:
     self.string.fill(color)
     self.string.show()
 
+  def preview_fill(self, fraction, color):
+    """Statically fill from the bottom up to `fraction` (0-1) of tree height.
+
+    Used by the dial timer setup to show the selected duration. Stops any running
+    animation so the fill stays put until the timer starts.
+    """
+    self.pause()
+    zs = [c[2] for c in self.coordinates]
+    z_min, z_max = min(zs), max(zs)
+    span = (z_max - z_min) or 1
+    threshold = z_min + fraction * span
+    for i, (x, y, z) in enumerate(self.coordinates):
+      self.string[i] = color if z <= threshold else (0, 0, 0)
+    self.string.show()
+
   def set_brightness(self, brightness):
     """Set the brightness of the LED string.
 
