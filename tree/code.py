@@ -58,11 +58,6 @@ except Exception as e:
 # Set up HTTP server
 server = Server(pool, "/static", debug=False)
 
-# Load the static control page once at startup. Reading it on every request
-# re-read flash inside the poll loop and leaked the file handle (never closed).
-with open("index.html", "r") as f:
-    INDEX_HTML = f.read()
-
 # Set up MQTT client
 print("Setting up MQTT client...")
 mqtt_client = MQTT(
@@ -306,6 +301,14 @@ def handle_state_change(state_params):
         print(f"Error handling state change: {e}")
         raise
 
+def start_timer(duration=300):
+    """Turn the tree on if needed, then start a fresh timer for `duration` seconds."""
+    if not tree.is_on():
+        tree.on()
+        publish_state()  # Notify subscribers of the implicit ON
+    tree.set_animation("timer", {"duration": duration})
+    tree.animation.start()
+
 def handle_timer_message(message):
     """Handle timer control messages.
 
@@ -331,15 +334,7 @@ def handle_timer_message(message):
                 duration = current_animation.duration
             else:
                 duration = 300  # Default 5 minutes
-
-            # Ensure tree is on when starting a timer
-            if not tree.is_on():
-                tree.on()
-                publish_state()  # Notify MQTT subscribers of state change
-
-            # Always create a fresh timer instance when starting
-            tree.set_animation("timer", {"duration": duration})
-            tree.animation.start()
+            start_timer(duration)
         elif command == "resume" and is_timer:
             current_animation.resume()
         elif command == "pause" and is_timer:
@@ -388,7 +383,11 @@ def base(request: Request):
     """
     Serve a static control page
     """
-    return Response(request, INDEX_HTML, content_type="text/html")
+    # The control page is a dev-time convenience (primary control is MQTT/dial),
+    # so read it per request rather than holding it in RAM permanently. The `with`
+    # block closes the file handle, which the previous open().read() leaked.
+    with open("index.html", "r") as f:
+        return Response(request, f.read(), content_type="text/html")
 
 @server.route("/on")
 def on(request: Request):
@@ -497,14 +496,7 @@ def timer_start(request: Request):
             params = json.loads(request.body.decode())
             duration = params.get("duration", 300)
 
-        # Ensure tree is on when starting a timer
-        if not tree.is_on():
-            tree.on()
-            publish_state()  # Notify MQTT subscribers of state change
-
-        # Create fresh timer and start it
-        tree.set_animation("timer", {"duration": duration})
-        tree.animation.start()
+        start_timer(duration)
 
         return Response(request, json.dumps({"message": f"Timer started for {duration} seconds"}), content_type="application/json")
     except json.JSONDecodeError:
