@@ -1,9 +1,21 @@
 #!/bin/bash
 
+# Usage:
+#   ./deploy.sh            # watch tree/ and sync changed files continuously (default)
+#   ./deploy.sh --watch    # same as above
+#   ./deploy.sh --once      # sync all of tree/ to the board once, then exit
+
 CIRCUITPY="/Volumes/CIRCUITPY/"
 TREE_SRC="tree/"
 EXCLUDES="--exclude='settings.toml' --exclude='boot_out.txt' --exclude='.Trashes' --exclude='.fseventsd' --exclude='.Spotlight*' --exclude='.DS_Store'"
 RSYNC_BASE="rsync --inplace --no-times --no-perms --chmod=ugo=rwX --out-format='[%i] %n'"
+
+MODE="watch"
+case "$1" in
+    --once|once) MODE="once" ;;
+    --watch|watch|"") MODE="watch" ;;
+    *) echo "Usage: $0 [--once|--watch]" >&2; exit 2 ;;
+esac
 
 debug() {
     echo "[$(date +%H:%M:%S.%N)] $1" >&2
@@ -24,7 +36,22 @@ sync_file() {
     fi
 }
 
-# Get absolute path of source directory
+sync_all() {
+    if [ ! -d "$CIRCUITPY" ]; then
+        debug "CIRCUITPY not mounted at ${CIRCUITPY}; aborting"
+        exit 1
+    fi
+    debug "Syncing all of ${TREE_SRC} to ${CIRCUITPY}"
+    eval "${RSYNC_BASE} -r ${EXCLUDES} \"${TREE_SRC}\" \"${CIRCUITPY}\"" | grep '^\[>f' | cut -d] -f2-
+    debug "Full sync complete"
+}
+
+if [ "$MODE" = "once" ]; then
+    sync_all
+    exit 0
+fi
+
+# Watch mode
 TREE_SRC_ABS=$(cd "${TREE_SRC}" && pwd)
 
 debug "Starting watch on ${TREE_SRC}"
