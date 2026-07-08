@@ -17,6 +17,8 @@ if the dials are absent or fail to initialize.
 - **Robust init**: initialize each encoder in its own try/except. A missing/loose
   dial is skipped with a log line and the tree runs normally without it. Init must
   never crash startup (this was the original defect that got the encoders removed).
+- **Bus/poll tuning**: the seesaw bus runs at 400kHz and dials are polled at ~33Hz, to
+  keep the blocking I²C reads from stealing time from the ~30fps render loop.
 
 ## Global button semantics (same in every mode)
 
@@ -80,12 +82,13 @@ Plays one animation from the library (currently `rainbow_cycle`, `sweep`).
 
 ### Timer mode
 
-Pick a duration by filling the tree, then run a countdown. Cap **100 minutes**
-(one minute ≈ one percent of tree height — turning fills bottom→top).
+Pick a duration by filling the tree, then run a countdown. Cap **100 minutes** —
+**one minute = one LED**, lit from the bottom up by height rank (not a z threshold,
+so spacing is uniform despite the tree's non-uniform vertical LED positions).
 - Sub-states: **EDITING** (armed, not running) and **RUNNING**; PAUSED is EDITING with a
   preserved remaining value.
-- **Center turn** → set/adjust minutes, 1–100 (accel). Tree shows a static preview fill
-  to `minutes/100` of height in a cool "setup" color (blue) to distinguish it from a
+- **Center turn** → set/adjust minutes, 1–100 (accel). Tree lights exactly that many
+  LEDs from the bottom up, in a cool "setup" color (blue) to distinguish it from a
   running timer.
 - **Right press** → start (EDITING→RUNNING) / pause (RUNNING→EDITING, preserving
   remaining) / resume (start from the shown value, edited or not).

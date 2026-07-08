@@ -1,5 +1,6 @@
 import asyncio
 import board
+import busio
 import os
 import time
 import socketpool
@@ -386,7 +387,13 @@ mqtt_client.on_message = mqtt_message
 # Set up dials (rotary encoders). Missing/failed dials are skipped so the tree
 # still runs over MQTT without them.
 print("Initializing dials...")
-i2c = board.I2C()
+# Run the seesaw bus at 400kHz so per-poll dial reads are ~4x faster and steal
+# less time from the render loop. Fall back to the default bus if unavailable.
+try:
+    i2c = busio.I2C(board.SCL, board.SDA, frequency=400_000)
+except Exception as e:
+    print(f"Fast I2C unavailable ({e}); using default bus")
+    i2c = board.I2C()
 dials = Dials(i2c)
 if dials.any_present:
     dials.calibrate()
@@ -623,7 +630,7 @@ async def handle_encoders():
             controller.poll()
         except Exception as e:
             print(f"Encoder poll error: {e}")
-        await asyncio.sleep(0.02)
+        await asyncio.sleep(0.03)  # ~33Hz: responsive for dials, light on the loop
 
 async def handle_watchdog():
     """Feed the watchdog periodically."""

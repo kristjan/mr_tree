@@ -283,7 +283,8 @@ class Controller:
         self._show_timer_preview()
 
     def _show_timer_preview(self):
-        self.tree.preview_fill(self.timer_minutes / MAX_MINUTES, TIMER_SETUP_COLOR)
+        # One LED per minute, from the bottom up.
+        self.tree.fill_count(self.timer_minutes, TIMER_SETUP_COLOR)
 
     def _adjust_minutes(self, delta):
         self.timer_minutes = _clamp(self.timer_minutes + _accel(delta, 1), 1, MAX_MINUTES)

@@ -19,6 +19,7 @@ class Tree:
   def __init__(self):
     self.string = neopixel.NeoPixel(board.A1, 100, brightness=0.2, auto_write=False, pixel_order=neopixel.RGB)
     self.coordinates = self.read_coordinates()
+    self._z_order = None  # pixel indices sorted bottom-to-top, computed on demand
     self.animation = None
     self.previous_brightness = 0.2  # Store initial brightness
     self.on()
@@ -57,20 +58,26 @@ class Tree:
     self.string.fill(color)
     self.string.show()
 
-  def preview_fill(self, fraction, color):
-    """Statically fill from the bottom up to `fraction` (0-1) of tree height.
+  def fill_count(self, n, color):
+    """Light exactly the lowest `n` LEDs by height, from the bottom up.
 
-    Used by the dial timer setup to show the selected duration. Stops any running
-    animation so the fill stays put until the timer starts.
+    Used by the dial timer setup so one LED == one minute regardless of the
+    tree's non-uniform vertical LED spacing (ranking by z, not a z threshold).
+    Stops any running animation so the fill stays put until the timer starts.
     """
     self.pause()
-    zs = [c[2] for c in self.coordinates]
-    z_min, z_max = min(zs), max(zs)
-    span = (z_max - z_min) or 1
-    threshold = z_min + fraction * span
-    for i, (x, y, z) in enumerate(self.coordinates):
-      self.string[i] = color if z <= threshold else (0, 0, 0)
+    order = self._height_order()
+    n = max(0, min(int(n), len(order)))
+    self.string.fill((0, 0, 0))
+    for idx in order[:n]:
+      self.string[idx] = color
     self.string.show()
+
+  def _height_order(self):
+    """Pixel indices sorted bottom-to-top by z height; computed once."""
+    if self._z_order is None:
+      self._z_order = sorted(range(len(self.coordinates)), key=lambda i: self.coordinates[i][2])
+    return self._z_order
 
   def set_brightness(self, brightness):
     """Set the brightness of the LED string.
