@@ -49,9 +49,10 @@ the HA REST API from the tree — but neither is planned.)
 
 Applied to RGB channels, timer minutes, and brightness. Step scales **linearly** with
 detents-per-poll (capped at 6) so fast spins move proportionally further while a single
-twist can't slam a channel end to end. Base step for RGB/brightness = **12** per detent
-(one detent is a clearly visible change at normal brightness). One encoder count = one
-detent on this hardware.
+twist can't slam a channel end to end. Base step = **16** per detent for color, 12 for
+brightness. 16 for color keeps one detent a visible step even at low display brightness
+(where the ~0.06 scale factor otherwise makes small steps round away). One encoder count
+= one detent on this hardware.
 
 ## Modes
 
@@ -62,8 +63,8 @@ The whole tree is one solid color. Dials adjust that color's channels.
 - **Center turn** → Green.
 - **Right turn** → Blue.
 - Dial LEDs: left = `(R,0,0)`, center = `(0,G,0)`, right = `(0,0,B)` — each dial glows
-  its own channel at its current level. Flash the dial LED white briefly when a channel
-  hits 0 or 255 (limit cue).
+  its own channel at its current level. The dial LED blinks white (~8 Hz) while the user
+  keeps turning a channel past its 0 or 255 limit (limit cue).
 - Setting any channel calls `tree.set_color((r,g,b))` and publishes state.
 
 ### Animation mode

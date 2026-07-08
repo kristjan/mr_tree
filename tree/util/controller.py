@@ -24,9 +24,10 @@ MAX_MINUTES = 100
 TIMER_AUTOSTART_S = 30
 TIMER_SETUP_COLOR = (0, 0, 60)  # cool blue = "armed, not running"
 
-RGB_STEP = 12      # base per-detent step for color channels
+RGB_STEP = 16      # base per-detent step for color channels
 BRIGHT_STEP = 12   # base per-detent step for brightness
 PUBLISH_INTERVAL = 0.2  # min seconds between dial-driven MQTT state publishes
+LIMIT_BLINK_HZ = 8      # dial LED blink rate when pushing a channel past its limit
 
 
 def _clamp(value, lo, hi):
@@ -75,6 +76,9 @@ class Controller:
         self._publish_dirty = False
         self._last_publish = 0.0
 
+        # Dial LEDs currently blinking a limit cue: pos -> blink-until time.
+        self._blink_until = {}
+
     # ---- lifecycle ----------------------------------------------------
 
     def start(self):
@@ -107,7 +111,20 @@ class Controller:
             print("Timer auto-start after 30s idle")
             self._start_timer()
 
+        self._tick_leds(now)
         self._flush_publish(now)
+
+    def _tick_leds(self, now):
+        """Drive any active limit-cue blinks; restore the normal LED when done."""
+        if not self._blink_until:
+            return
+        for pos in list(self._blink_until.keys()):
+            if now >= self._blink_until[pos]:
+                del self._blink_until[pos]
+                self._update_leds()  # restore normal per-mode LED
+            else:
+                on = int(now * LIMIT_BLINK_HZ) % 2 == 0
+                self._set_led(pos, (255, 255, 255) if on else (0, 0, 0))
 
     # ---- MQTT publish throttling -------------------------------------
 
@@ -203,9 +220,13 @@ class Controller:
     # ---- RGB ----------------------------------------------------------
 
     def _adjust_channel(self, pos, delta):
-        self.rgb[pos] = _clamp(self.rgb[pos] + _accel(delta, RGB_STEP), 0, 255)
+        old = self.rgb[pos]
+        self.rgb[pos] = _clamp(old + _accel(delta, RGB_STEP), 0, 255)
         self.tree.set_color(tuple(self.rgb))
         self._update_leds()
+        # Blink the dial LED if the user keeps pushing a channel past its limit.
+        if self.rgb[pos] == old and ((delta > 0 and old >= 255) or (delta < 0 and old <= 0)):
+            self._blink_until[pos] = time.monotonic() + 0.3
         self._request_publish()
 
     def _adjust_brightness(self, delta):
