@@ -17,4 +17,4 @@ class RainbowCycle(TreeAnimation):
         for i, coord in enumerate(self._coordinates):
             z = (coord[2] - z_min) / (z_max - z_min)
             hue = (z - elapsed * self.frequency) % 1.0
-            self.pixel_object[i] = [c * 255 for c in hsv_to_rgb(hue, 1.0, 1.0)]
+            self.pixel_object[i] = [int(c * 255) for c in hsv_to_rgb(hue, 1.0, 1.0)]
