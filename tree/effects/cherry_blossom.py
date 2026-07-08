@@ -7,10 +7,12 @@ from util.tree_animation import TreeAnimation
 TWO_PI = 2 * math.pi
 
 # Section split and palette (raw RGB; the strand's brightness scaling dims these).
+# TODO: TRUNK_FRACTION is a placeholder. Replace with the real trunk-section
+# boundary (z of the highest LED in the trunk section) once section data exists.
 TRUNK_FRACTION = 0.18           # bottom share of tree height treated as trunk
 TRUNK_COLOR = (90, 45, 18)      # warm brown
-BRANCH_COLOR = (170, 195, 225)  # cool white
-PINK = (255, 120, 170)          # cherry-blossom pink
+BRANCH_COLOR = (255, 197, 143)  # warm white (~3000K)
+PINK = (255, 40, 110)           # bright, saturated pink
 
 
 def _lerp(a, b, f):
@@ -22,7 +24,7 @@ def _lerp(a, b, f):
 
 
 class CherryBlossom(TreeAnimation):
-    """Trunk in brown, branches in cool white, with a fraction of branch LEDs
+    """Trunk in brown, branches in warm white, with a fraction of branch LEDs
     gently twinkling pink (fading white<->pink, staggered out of phase)."""
 
     def __init__(self, pixel_object, coordinates, speed, name, twinkle_speed=0.5, pink_fraction=0.4):
