@@ -7,6 +7,7 @@ import adafruit_led_animation.color as color
 from effects.rainbow_cycle import RainbowCycle
 from effects.sweep import Sweep
 from effects.timer import Timer
+from effects.cherry_blossom import CherryBlossom
 
 class Position:
   LEFT = 0
@@ -14,7 +15,7 @@ class Position:
   RIGHT = 2
 
 class Tree:
-  EFFECTS = ["rainbow_cycle", "sweep", "timer"]
+  EFFECTS = ["rainbow_cycle", "sweep", "cherry_blossom", "timer"]
 
   def __init__(self):
     self.string = neopixel.NeoPixel(board.A1, 100, brightness=0.2, auto_write=False, pixel_order=neopixel.RGB)
@@ -130,6 +131,9 @@ class Tree:
         # At slowest speed (step=1): lag=40
         # At fastest speed (step=10): lag=120
         self.animation.lag = 40 + int(speed * 80)
+      elif isinstance(self.animation, CherryBlossom):
+        # Twinkle fade rate.
+        self.animation.twinkle_speed = speed
 
       # Keep update speed constant and fast for smooth animation
       self.animation.speed = 0.01
@@ -142,6 +146,8 @@ class Tree:
       elif effect_name == "sweep":
           # Start with medium speed (step = 5, lag = 80)
           return Sweep(self.string, coordinates=self.coordinates, color=color.BLUE, speed=0.01, lead=20, lag=80, step=5, name='sweep')
+      elif effect_name == "cherry_blossom":
+          return CherryBlossom(self.string, self.coordinates, speed=0.01, name='cherry_blossom', twinkle_speed=0.5, pink_fraction=0.4)
       elif effect_name == "timer":
           # Default 5 minute timer if not specified
           duration = int(params.get('duration', 300))

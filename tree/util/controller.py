@@ -17,8 +17,8 @@ ANIMATION = "animation"
 TIMER = "timer"
 
 # Animations selectable via the dial (the timer is its own mode).
-ANIMATIONS = ["rainbow_cycle", "sweep"]
-ANIM_LED = {"rainbow_cycle": (40, 0, 40), "sweep": (0, 20, 60)}
+ANIMATIONS = ["rainbow_cycle", "sweep", "cherry_blossom"]
+ANIM_LED = {"rainbow_cycle": (40, 0, 40), "sweep": (0, 20, 60), "cherry_blossom": (60, 20, 40)}
 
 MAX_MINUTES = 100
 TIMER_AUTOSTART_S = 30
@@ -66,6 +66,7 @@ class Controller:
         self.speed = 0.5            # 0-1
         self.sweep_hue = 0.66       # blue
         self.rainbow_bandwidth = 1.0
+        self.pink_fraction = 0.4    # cherry_blossom: share of branch LEDs (0.1-0.9)
 
         self.timer_minutes = 5
         self._timer_editing = False
@@ -251,6 +252,8 @@ class Controller:
             anim.color = self._hue_to_rgb(self.sweep_hue)
         elif name == "rainbow_cycle":
             anim.bandwidth = self.rainbow_bandwidth
+        elif name == "cherry_blossom":
+            anim.pink_fraction = self.pink_fraction
 
     def _cycle_animation(self, delta):
         step = 1 if delta > 0 else -1
@@ -273,6 +276,8 @@ class Controller:
             # 0.1 => the whole tree is ~one color with the next sweeping up from the
             # bottom; 4.0 => four full color cycles across the height.
             self.rainbow_bandwidth = _clampf(self.rainbow_bandwidth + delta * 0.2, 0.1, 4.0)
+        elif name == "cherry_blossom":
+            self.pink_fraction = _clampf(self.pink_fraction + delta * 0.05, 0.1, 0.9)
         self._apply_anim_param()
         self._update_leds()
         self._request_publish()
@@ -365,6 +370,9 @@ class Controller:
             self._set_led(CENTER, (v, v, v))
             if name == "sweep":
                 self._set_led(RIGHT, self._hue_to_rgb(self.sweep_hue))
+            elif name == "cherry_blossom":
+                v = self.pink_fraction
+                self._set_led(RIGHT, (int(60 * v) + 6, int(20 * v), int(35 * v) + 4))
             else:
                 b = min(60, int(self.rainbow_bandwidth * 12))
                 self._set_led(RIGHT, (b, b, 0))
