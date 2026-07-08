@@ -165,7 +165,7 @@ class Controller:
             elif pos == RIGHT:
                 self._adjust_param(delta)
         elif self.mode == TIMER:
-            if pos == CENTER and self._timer_editing:
+            if pos == LEFT and self._timer_editing:
                 self._adjust_minutes(delta)
 
     def _on_press(self, pos, right_held):
@@ -270,7 +270,9 @@ class Controller:
         if name == "sweep":
             self.sweep_hue = (self.sweep_hue + delta * 0.03) % 1.0
         elif name == "rainbow_cycle":
-            self.rainbow_bandwidth = _clampf(self.rainbow_bandwidth + delta * 0.5, 1.0, 8.0)
+            # 0.1 => the whole tree is ~one color with the next sweeping up from the
+            # bottom; 4.0 => four full color cycles across the height.
+            self.rainbow_bandwidth = _clampf(self.rainbow_bandwidth + delta * 0.2, 0.1, 4.0)
         self._apply_anim_param()
         self._update_leds()
         self._request_publish()
@@ -367,8 +369,9 @@ class Controller:
                 b = min(60, int(self.rainbow_bandwidth * 12))
                 self._set_led(RIGHT, (b, b, 0))
         elif self.mode == TIMER:
-            self._set_led(LEFT, (0, 0, 0))
-            self._set_led(CENTER, (0, 60, 0) if self._timer_editing else (0, 0, 0))
+            # Left is the minutes dial while editing; right shows run/pause state.
+            self._set_led(LEFT, (0, 60, 0) if self._timer_editing else (0, 0, 0))
+            self._set_led(CENTER, (0, 0, 0))
             self._set_led(RIGHT, (0, 60, 0) if self._timer_editing else (60, 40, 0))
 
     def _hue_to_rgb(self, hue):

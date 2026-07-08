@@ -76,7 +76,8 @@ Plays one animation from the library (currently `rainbow_cycle`, `sweep`).
 - **Center turn** → speed (maps through `Tree.set_speed`).
 - **Right turn** → the animation's one character parameter:
   - `sweep` → hue (color of the sweep band).
-  - `rainbow_cycle` → bandwidth (how many color cycles span the tree height).
+  - `rainbow_cycle` → bandwidth: 0.1 (≈one color over the whole tree, next sweeping
+    up from the bottom) to 4.0 (four full color cycles across the height).
 - Dial LEDs: left = current animation's signature color; center brightness ∝ speed;
   right = the param's hue/level.
 
@@ -87,9 +88,9 @@ Pick a duration by filling the tree, then run a countdown. Cap **100 minutes** �
 so spacing is uniform despite the tree's non-uniform vertical LED positions).
 - Sub-states: **EDITING** (armed, not running) and **RUNNING**; PAUSED is EDITING with a
   preserved remaining value.
-- **Center turn** → set/adjust minutes, 1–100 (accel). Tree lights exactly that many
+- **Left turn** → set/adjust minutes, 1–100 (accel). Tree lights exactly that many
   LEDs from the bottom up, in a cool "setup" color (blue) to distinguish it from a
-  running timer.
+  running timer. (Left *press* still cancels/exits — turn and press are distinct.)
 - **Right press** → start (EDITING→RUNNING) / pause (RUNNING→EDITING, preserving
   remaining) / resume (start from the shown value, edited or not).
 - **Left press** → cancel timer, return to RGB.
