@@ -1,4 +1,5 @@
 import asyncio
+import board
 import os
 import time
 import socketpool
@@ -12,6 +13,8 @@ from adafruit_minimqtt.adafruit_minimqtt import MQTT
 
 from tree import Tree
 from effects.timer import Timer
+from util.encoders import Dials
+from util.controller import Controller
 from util.mqtt import (
     set_mqtt_client, publish_message,
     MQTT_TOPIC_STATE, MQTT_TOPIC_SET, MQTT_TOPIC_AVAILABILITY,
@@ -297,6 +300,8 @@ def handle_state_change(state_params):
                 tree.resume()
 
         publish_state()
+        # Keep the dial controller's mode/values coherent with HA commands.
+        controller.sync_from_ha(state_params)
     except Exception as e:
         print(f"Error handling state change: {e}")
         raise
@@ -377,6 +382,15 @@ def publish_state():
 # Set up MQTT callbacks
 mqtt_client.on_connect = mqtt_connect
 mqtt_client.on_message = mqtt_message
+
+# Set up dials (rotary encoders). Missing/failed dials are skipped so the tree
+# still runs over MQTT without them.
+print("Initializing dials...")
+i2c = board.I2C()
+dials = Dials(i2c)
+if dials.any_present:
+    dials.calibrate()
+controller = Controller(tree, dials, publish_state)
 
 @server.route("/")
 def base(request: Request):
@@ -598,6 +612,19 @@ async def handle_mqtt():
 
         await asyncio.sleep(0.01)  # Short sleep to allow animation task to run frequently
 
+async def handle_encoders():
+    """Poll the dials and dispatch turn/press interactions to the controller."""
+    if not dials.any_present:
+        print("No dials present; encoder task idle")
+        return
+    controller.start()
+    while True:
+        try:
+            controller.poll()
+        except Exception as e:
+            print(f"Encoder poll error: {e}")
+        await asyncio.sleep(0.02)
+
 async def handle_watchdog():
     """Feed the watchdog periodically."""
     feed_count = 0
@@ -663,6 +690,8 @@ async def main():
     server_task = asyncio.create_task(handle_requests())
     print("Creating animation task")
     animation_task = asyncio.create_task(tree.animate())
+    print("Creating encoder task")
+    encoder_task = asyncio.create_task(handle_encoders())
     print("Creating MQTT task")
     mqtt_task = asyncio.create_task(handle_mqtt())
     print("Creating timer updates task")
@@ -673,7 +702,7 @@ async def main():
     watchdog_task = asyncio.create_task(handle_watchdog())
     print("Starting tasks")
     try:
-        await asyncio.gather(server_task, animation_task, mqtt_task, timer_task, heartbeat_task, watchdog_task)
+        await asyncio.gather(server_task, animation_task, encoder_task, mqtt_task, timer_task, heartbeat_task, watchdog_task)
     except Exception as e:
         print(f"Critical error in main loop: {e}")
         # Feed watchdog one more time before potentially restarting
