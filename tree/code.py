@@ -56,7 +56,12 @@ except Exception as e:
     print("Continuing without mDNS...")
 
 # Set up HTTP server
-server = Server(pool, "/static", debug=True)
+server = Server(pool, "/static", debug=False)
+
+# Load the static control page once at startup. Reading it on every request
+# re-read flash inside the poll loop and leaked the file handle (never closed).
+with open("index.html", "r") as f:
+    INDEX_HTML = f.read()
 
 # Set up MQTT client
 print("Setting up MQTT client...")
@@ -383,7 +388,7 @@ def base(request: Request):
     """
     Serve a static control page
     """
-    return Response(request, open("index.html", "r").read(), content_type="text/html")
+    return Response(request, INDEX_HTML, content_type="text/html")
 
 @server.route("/on")
 def on(request: Request):
