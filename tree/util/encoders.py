@@ -40,7 +40,6 @@ class Dial:
         # CW = increase (the raw position counts the other way).
         self._last_position = -self._encoder.position
         self._pressed = self._is_down()
-        self._raw_last = self._pressed
         self._last_change = time.monotonic()
 
     def _is_down(self):
@@ -53,16 +52,18 @@ class Dial:
         self._last_position = position
         return delta
 
-    def poll_button(self, debounce=0.02):
-        """Return 'press', 'release', or None (debounced edge since last call)."""
+    def poll_button(self, debounce=0.03):
+        """Return 'press', 'release', or None.
+
+        Edge-triggered: a state change is reported on the first poll that sees it
+        (so a brief press caught in a single poll still registers), then further
+        changes are ignored for `debounce` seconds to reject mechanical bounce.
+        """
         raw = self._is_down()
         now = time.monotonic()
-        if raw != self._raw_last:
-            self._raw_last = raw
-            self._last_change = now
-            return None
-        if (now - self._last_change) >= debounce and raw != self._pressed:
+        if raw != self._pressed and (now - self._last_change) >= debounce:
             self._pressed = raw
+            self._last_change = now
             return "press" if raw else "release"
         return None
 
