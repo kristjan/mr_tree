@@ -61,10 +61,10 @@ class Tree:
     """Set the brightness of the LED string.
 
     Args:
-        brightness: Value from 0-1, which will be scaled to 0-0.25 for the LED string
+        brightness: Value from 0-255 (HA/API range), scaled to the LED string's
+            0-0.25 hardware range to limit current draw and color distortion.
     """
-    print(brightness)
-    # Scale 0-1 to 0-0.25 to prevent color distortion at high brightness
+    # Scale 0-255 to 0-0.25
     self.string.brightness = brightness / 255 * 0.25
     self.string.show()
 
