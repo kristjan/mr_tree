@@ -614,6 +614,41 @@ def inspect_off(request: Request):
     controller.set_mode(controller.mode)
     return Response(request, "inspect off")
 
+# ---- Binary-coded capture (for photogrammetry) -----------------------------
+# Plays a timed sequence a camera can record: two all-on markers bracket N
+# bit-frames (frame k lights LEDs whose index has bit k set), each preceded by a
+# dark gap. Offline, blobs are located and their on/off pattern across frames
+# decodes each blob's LED index; multiple angles triangulate to 3D coordinates.
+_capture_pending = False
+_capture_dur = 1.2   # seconds each bit-frame is held
+
+def _capture_bits():
+    bits = 1
+    while (1 << bits) < len(tree.string):
+        bits += 1
+    return bits
+
+def _begin_capture(request, dur):
+    global _capture_pending, _capture_dur
+    _capture_dur = dur
+    _capture_pending = True
+    bits = _capture_bits()
+    gap, marker = 0.4, 1.0
+    total = 0.6 + marker + bits * (gap + dur) + gap + marker + 0.4
+    return Response(request, json.dumps({
+        "leds": len(tree.string), "bits": bits, "frame_dur": dur,
+        "gap_dur": gap, "marker_dur": marker, "estimated_seconds": round(total, 1),
+        "note": "Record now: two all-on markers bracket the bit-frames.",
+    }), content_type="application/json")
+
+@server.route("/capture/start")
+def capture_start(request: Request):
+    return _begin_capture(request, _capture_dur)
+
+@server.route("/capture/start/<dur>")
+def capture_start_dur(request: Request, dur: str):
+    return _begin_capture(request, float(dur))
+
 def hex_to_rgb(hex):
     return tuple(int(hex[i:i+2], 16) for i in (0, 2, 4))
 
@@ -665,6 +700,50 @@ async def handle_encoders():
         except Exception as e:
             print(f"Encoder poll error: {e}")
         await asyncio.sleep(0.03)  # ~33Hz: responsive for dials, light on the loop
+
+async def run_capture(dur):
+    """Play the binary-coded capture sequence (non-blocking via awaits)."""
+    n = len(tree.string)
+    bits = _capture_bits()
+    gap, marker = 0.4, 1.0
+    prev_brightness = tree.string.brightness
+    tree.pause()
+    tree.string.brightness = 0.25
+    print(f"Capture: {bits} bit-frames over ~{n} LEDs, {dur}s each")
+
+    def fill(color):
+        tree.string.fill(color)
+        tree.string.show()
+
+    def show_bit(k):
+        for i in range(n):
+            tree.string[i] = (255, 255, 255) if (i >> k) & 1 else (0, 0, 0)
+        tree.string.show()
+
+    fill((0, 0, 0)); await asyncio.sleep(0.6)
+    fill((255, 255, 255)); await asyncio.sleep(marker)      # start marker
+    for k in range(bits):
+        fill((0, 0, 0)); await asyncio.sleep(gap)
+        show_bit(k); await asyncio.sleep(dur)
+    fill((0, 0, 0)); await asyncio.sleep(gap)
+    fill((255, 255, 255)); await asyncio.sleep(marker)      # end marker
+    fill((0, 0, 0)); await asyncio.sleep(0.4)
+
+    tree.string.brightness = prev_brightness
+    controller.set_mode(controller.mode)  # resume normal display
+    print("Capture sequence complete")
+
+async def handle_capture():
+    """Run a capture sequence when one is requested via /capture/start."""
+    global _capture_pending
+    while True:
+        if _capture_pending:
+            _capture_pending = False
+            try:
+                await run_capture(_capture_dur)
+            except Exception as e:
+                print(f"Capture error: {e}")
+        await asyncio.sleep(0.1)
 
 async def handle_watchdog():
     """Feed the watchdog periodically."""
@@ -739,11 +818,13 @@ async def main():
     timer_task = asyncio.create_task(handle_timer_updates())
     print("Creating availability heartbeat task")
     heartbeat_task = asyncio.create_task(handle_availability_heartbeat())
+    print("Creating capture task")
+    capture_task = asyncio.create_task(handle_capture())
     print("Creating watchdog task")
     watchdog_task = asyncio.create_task(handle_watchdog())
     print("Starting tasks")
     try:
-        await asyncio.gather(server_task, animation_task, encoder_task, mqtt_task, timer_task, heartbeat_task, watchdog_task)
+        await asyncio.gather(server_task, animation_task, encoder_task, mqtt_task, timer_task, heartbeat_task, capture_task, watchdog_task)
     except Exception as e:
         print(f"Critical error in main loop: {e}")
         # Feed watchdog one more time before potentially restarting
