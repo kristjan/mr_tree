@@ -49,7 +49,7 @@ try:
     mdns_name = os.getenv("MDNS_NAME")
     mdns_server = mdns.Server(wifi.radio)
     mdns_server.hostname = mdns_name
-    mdns_server.advertise_service(service_type="_http", protocol="_tcp", port=os.getenv("SERVER_PORT"))
+    mdns_server.advertise_service(service_type="_http", protocol="_tcp", port=int(os.getenv("SERVER_PORT")))
     print(f"mDNS started at {mdns_name}.local")
 except Exception as e:
     print(f"Failed to start mDNS: {e}")
