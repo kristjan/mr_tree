@@ -1,6 +1,7 @@
 import asyncio
 import board
 import os
+import time
 import socketpool
 import wifi
 import mdns
@@ -24,10 +25,12 @@ from util.mqtt import (
     MQTT_TIMER_SET, MQTT_TIMER_DISCOVERY_TOPIC
 )
 
-# Set up watchdog with a 10 second timeout
+# Configure the watchdog with a 10 second timeout. It is deliberately NOT armed
+# here: blocking WiFi/MQTT setup during startup can take longer than the timeout,
+# and nothing feeds the watchdog until the feeder task starts. Arming it now would
+# reset (and bootloop) the board whenever the network or broker is slow/absent.
+# It is armed in main() once network setup is complete.
 watchdog.timeout = 10.0  # 10 seconds
-watchdog.mode = WatchDogMode.RESET  # Reset the system when watchdog expires
-watchdog.feed()  # Feed it once before starting main program
 
 print("Creating tree...")
 tree = Tree()
@@ -35,7 +38,13 @@ print("Tree created!")
 tree.on()
 
 print("Connecting to WiFi...")
-wifi.radio.connect(os.getenv("WIFI_SSID"), os.getenv("WIFI_PASSWORD"))
+for attempt in range(10):
+    try:
+        wifi.radio.connect(os.getenv("WIFI_SSID"), os.getenv("WIFI_PASSWORD"))
+        break
+    except Exception as e:
+        print(f"WiFi connection attempt {attempt + 1}/10 failed: {e}")
+        time.sleep(2)
 print("Connected!", str(wifi.radio.ipv4_address))
 
 # Set up socket pool
@@ -63,7 +72,8 @@ mqtt_client = MQTT(
     username=os.getenv("MQTT_USERNAME"),
     password=os.getenv("MQTT_PASSWORD"),
     socket_pool=pool,
-    socket_timeout=0.02  # 20ms timeout for smooth 30fps animation
+    socket_timeout=0.02,  # 20ms timeout for smooth 30fps animation
+    recv_timeout=5  # bound blocking connect/reconnect below the 10s watchdog window
 )
 
 # Initialize MQTT utilities
@@ -677,6 +687,11 @@ async def main():
     if not mqtt_connected:
         print("WARNING: Failed to connect to MQTT broker after 3 attempts")
         print("Device will continue with degraded functionality (no Home Assistant integration)")
+
+    # Network setup is done: arm the watchdog now. From here the feeder task keeps
+    # it alive, and recv_timeout bounds any single blocking network call below 10s.
+    watchdog.mode = WatchDogMode.RESET
+    watchdog.feed()
 
     print("Creating server task")
     server_task = asyncio.create_task(handle_requests())
