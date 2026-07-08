@@ -580,6 +580,40 @@ def timer_state(request: Request):
     except Exception as e:
         return Response(request, f"Error: {str(e)}", status=400)
 
+def _inspect_light(indices):
+    """Testbed helper: freeze animations and light exactly `indices` white so a
+    physical LED can be located (for section tagging and coordinate fixing)."""
+    tree.pause()
+    if tree.string.brightness == 0:
+        tree.string.brightness = 0.3  # ensure visible even if the tree was 'off'
+    tree.string.fill((0, 0, 0))
+    for i in indices:
+        if 0 <= i < len(tree.string):
+            tree.string[i] = (255, 255, 255)
+    tree.string.show()
+
+@server.route("/inspect/<index>")
+def inspect(request: Request, index: str):
+    """Light a single LED and report its stored coordinate."""
+    i = int(index)
+    _inspect_light([i])
+    x, y, z = tree.coordinates[i]
+    return Response(request, json.dumps({"index": i, "x": x, "y": y, "z": z}), content_type="application/json")
+
+@server.route("/inspect/range/<start>/<end>")
+def inspect_range(request: Request, start: str, end: str):
+    """Light a contiguous LED range (inclusive) to preview a candidate section."""
+    a, b = int(start), int(end)
+    indices = list(range(min(a, b), max(a, b) + 1))
+    _inspect_light(indices)
+    return Response(request, json.dumps({"start": a, "end": b, "count": len(indices)}), content_type="application/json")
+
+@server.route("/inspect/off")
+def inspect_off(request: Request):
+    """Exit inspect mode by re-rendering the controller's current mode."""
+    controller.set_mode(controller.mode)
+    return Response(request, "inspect off")
+
 def hex_to_rgb(hex):
     return tuple(int(hex[i:i+2], 16) for i in (0, 2, 4))
 
