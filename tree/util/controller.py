@@ -24,8 +24,9 @@ MAX_MINUTES = 100
 TIMER_AUTOSTART_S = 30
 TIMER_SETUP_COLOR = (0, 0, 60)  # cool blue = "armed, not running"
 
-RGB_STEP = 8       # base per-detent step for color channels
-BRIGHT_STEP = 8    # base per-detent step for brightness
+RGB_STEP = 12      # base per-detent step for color channels
+BRIGHT_STEP = 12   # base per-detent step for brightness
+PUBLISH_INTERVAL = 0.2  # min seconds between dial-driven MQTT state publishes
 
 
 def _clamp(value, lo, hi):
@@ -37,9 +38,13 @@ def _clampf(value, lo, hi):
 
 
 def _accel(delta, base):
-    """Signed step with acceleration: fast spins move much further per detent."""
-    mag = abs(delta)
-    step = base * mag * mag
+    """Signed step, linear in detents with a cap.
+
+    Linear (not quadratic) so a single fast twist can't slam a channel end to
+    end; the cap bounds pathological single-poll deltas. One slow detent = `base`.
+    """
+    mag = min(abs(delta), 6)
+    step = base * mag
     return step if delta >= 0 else -step
 
 
@@ -65,6 +70,10 @@ class Controller:
         self._timer_editing = False
         self._last_input = time.monotonic()
         self._right_turned = False
+
+        # MQTT publish throttling for high-frequency dial changes.
+        self._publish_dirty = False
+        self._last_publish = 0.0
 
     # ---- lifecycle ----------------------------------------------------
 
@@ -97,6 +106,26 @@ class Controller:
         if self.mode == TIMER and self._timer_editing and (now - self._last_input) >= TIMER_AUTOSTART_S:
             print("Timer auto-start after 30s idle")
             self._start_timer()
+
+        self._flush_publish(now)
+
+    # ---- MQTT publish throttling -------------------------------------
+
+    def _request_publish(self):
+        """Mark state dirty; poll() flushes it at most every PUBLISH_INTERVAL."""
+        self._publish_dirty = True
+
+    def _flush_publish(self, now):
+        if self._publish_dirty and (now - self._last_publish) >= PUBLISH_INTERVAL:
+            self.publish()
+            self._last_publish = now
+            self._publish_dirty = False
+
+    def _publish_now(self):
+        """Publish immediately (discrete events) and reset the throttle window."""
+        self.publish()
+        self._last_publish = time.monotonic()
+        self._publish_dirty = False
 
     # ---- event handlers ----------------------------------------------
 
@@ -162,14 +191,14 @@ class Controller:
         elif mode == TIMER:
             self._enter_timer()
         self._update_leds()
-        self.publish()
+        self._publish_now()
 
     def toggle_power(self):
         if self.tree.is_on():
             self.tree.off()
         else:
             self.tree.on()
-        self.publish()
+        self._publish_now()
 
     # ---- RGB ----------------------------------------------------------
 
@@ -177,12 +206,12 @@ class Controller:
         self.rgb[pos] = _clamp(self.rgb[pos] + _accel(delta, RGB_STEP), 0, 255)
         self.tree.set_color(tuple(self.rgb))
         self._update_leds()
-        self.publish()
+        self._request_publish()
 
     def _adjust_brightness(self, delta):
         self.brightness = _clamp(self.brightness + _accel(delta, BRIGHT_STEP), 0, 255)
         self.tree.set_brightness(self.brightness)
-        self.publish()
+        self._request_publish()
 
     # ---- animation ----------------------------------------------------
 
@@ -207,13 +236,13 @@ class Controller:
         self.anim_index = (self.anim_index + step) % len(ANIMATIONS)
         self._start_animation()
         self._update_leds()
-        self.publish()
+        self._request_publish()
 
     def _adjust_speed(self, delta):
         self.speed = _clampf(self.speed + delta * 0.05, 0.0, 1.0)
         self.tree.set_speed(self.speed)
         self._update_leds()
-        self.publish()
+        self._request_publish()
 
     def _adjust_param(self, delta):
         name = ANIMATIONS[self.anim_index]
@@ -223,7 +252,7 @@ class Controller:
             self.rainbow_bandwidth = _clampf(self.rainbow_bandwidth + delta * 0.5, 1.0, 8.0)
         self._apply_anim_param()
         self._update_leds()
-        self.publish()
+        self._request_publish()
 
     # ---- timer --------------------------------------------------------
 
@@ -239,7 +268,7 @@ class Controller:
         self.timer_minutes = _clamp(self.timer_minutes + _accel(delta, 1), 1, MAX_MINUTES)
         self._show_timer_preview()
         self._update_leds()
-        self.publish()
+        self._request_publish()
 
     def _toggle_timer(self):
         if self._timer_editing:
@@ -254,7 +283,7 @@ class Controller:
             self._last_input = time.monotonic()
             self._show_timer_preview()
             self._update_leds()
-            self.publish()
+            self._publish_now()
 
     def _start_timer(self):
         if not self.tree.is_on():
@@ -263,7 +292,7 @@ class Controller:
         self.tree.set_animation("timer", {"duration": self.timer_minutes * 60})
         self.tree.animation.start()
         self._update_leds()
-        self.publish()
+        self._publish_now()
 
     def _cancel_timer(self):
         anim = self.tree.animation

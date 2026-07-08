@@ -7,7 +7,8 @@ if the dials are absent or fail to initialize.
 
 ## Hardware
 
-- I²C addresses: **0x36, 0x37, 0x38** (Adafruit QT encoder default 0x36; others jumpered).
+- I²C addresses: **0x37, 0x38, 0x36** for physical left → center → right (confirmed on
+  hardware; the leftmost dial is 0x37).
 - Per encoder: `IncrementalEncoder` (`.position`, relative), button on **pin 24**
   (`INPUT_PULLUP`, pressed == `value False`), onboard NeoPixel on **pin 6**.
 - CW rotation = increase (negate `.position` if the hardware reads the other way).
@@ -35,16 +36,22 @@ Conversely HA commands drive the local mode for coherence:
 - HA effect command → Animation mode, selects that effect.
 - HA on/off / brightness → applied and mirrored in controller state.
 
+High-frequency dial changes (color, brightness, speed, param, timer minutes) are
+**throttled to one MQTT publish per 200ms** with a trailing publish when the dial stops,
+so spinning a dial doesn't flood the broker. Discrete events (mode switch, power,
+timer start/pause) publish immediately.
+
 The tree stays a self-contained end device. (If two-way sync ever needs more than
 MQTT can express, the fallbacks are reintroducing the HA custom component or calling
 the HA REST API from the tree — but neither is planned.)
 
 ## Turn acceleration
 
-Applied to RGB channels, timer minutes, and brightness. Larger per-detent step when
-the dial is spun quickly, small step when turned slowly, so the full range is fast to
-cover but fine adjustment stays possible. Base step for RGB/brightness = **8** per
-detent; acceleration multiplies that for fast spins.
+Applied to RGB channels, timer minutes, and brightness. Step scales **linearly** with
+detents-per-poll (capped at 6) so fast spins move proportionally further while a single
+twist can't slam a channel end to end. Base step for RGB/brightness = **12** per detent
+(one detent is a clearly visible change at normal brightness). One encoder count = one
+detent on this hardware.
 
 ## Modes
 

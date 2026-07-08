@@ -17,9 +17,9 @@ LEFT = 0
 CENTER = 1
 RIGHT = 2
 
-# Physical left -> center -> right, by I2C address. Reorder after boot calibration
-# if the physical dials don't match (see Dials.calibrate).
-DIAL_ADDRESSES = [0x36, 0x37, 0x38]
+# Physical left -> center -> right, by I2C address (confirmed on hardware:
+# leftmost dial is 0x37, then 0x38, then 0x36).
+DIAL_ADDRESSES = [0x37, 0x38, 0x36]
 
 _BUTTON_PIN = 24  # onboard push-button
 _PIXEL_PIN = 6    # onboard NeoPixel
