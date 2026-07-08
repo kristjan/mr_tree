@@ -7,7 +7,7 @@
 
 CIRCUITPY="/Volumes/CIRCUITPY/"
 TREE_SRC="tree/"
-EXCLUDES="--exclude='settings.toml' --exclude='boot_out.txt' --exclude='.Trashes' --exclude='.fseventsd' --exclude='.Spotlight*' --exclude='.DS_Store'"
+EXCLUDES="--exclude='settings.toml' --exclude='boot_out.txt' --exclude='.Trashes' --exclude='.fseventsd' --exclude='.Spotlight*' --exclude='.DS_Store' --exclude='__pycache__' --exclude='*.pyc'"
 RSYNC_BASE="rsync --inplace --no-times --no-perms --chmod=ugo=rwX --out-format='[%i] %n'"
 
 MODE="watch"

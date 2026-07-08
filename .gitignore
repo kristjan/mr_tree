@@ -1,2 +1,4 @@
 settings.toml
 reference/
+__pycache__/
+*.pyc
