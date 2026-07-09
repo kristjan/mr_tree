@@ -445,12 +445,15 @@ class Controller:
             ]
 
     def _update_leds(self):
+        # A power fade owns the LEDs until it finishes; don't fight it. This must
+        # come before the on/off check: turning off starts a fade-to-dark, and an
+        # HA state change calls _update_leds right after, which would otherwise
+        # blank the LEDs instantly and snap the fade off.
+        if self._led_fade is not None:
+            return
         # While the tree is off, all dial LEDs stay dark regardless of mode.
         if not self.tree.is_on():
             self._blank_leds()
-            return
-        # A power fade owns the LEDs until it finishes; don't fight it.
-        if self._led_fade is not None:
             return
         for pos, color in enumerate(self._led_colors()):
             self._set_led(pos, color)
