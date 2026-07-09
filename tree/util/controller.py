@@ -21,7 +21,7 @@ TIMER = "timer"
 ANIMATIONS = ["hue_shift", "rainbow_cycle", "cherry_blossom", "pinwheel"]
 ANIM_LED = {"hue_shift": (40, 30, 0), "rainbow_cycle": (40, 0, 40), "cherry_blossom": (60, 20, 40), "pinwheel": (0, 40, 40)}
 
-HUE_MAX_BANDS = 5    # cap for the hue_shift "number of colors" dial
+HUE_MAX_MODES = 5    # cap for the hue_shift segmentation-mode dial
 
 MAX_MINUTES = 100
 TIMER_AUTOSTART_S = 30
@@ -72,7 +72,7 @@ class Controller:
         self.rainbow_bandwidth = 1.0
         self.pink_fraction = 0.4    # cherry_blossom: share of branch LEDs (0.1-0.9)
         self.pinwheel_repeats = 1   # pinwheel: color cycles around the circle (1-4)
-        self.hue_bands = 1          # hue_shift: number of color anchors (1 = single color)
+        self.hue_mode = 1           # hue_shift: segmentation mode (1 = whole tree one color)
 
         self.timer_minutes = 5
         self._timer_editing = False
@@ -317,7 +317,7 @@ class Controller:
         elif name == "pinwheel":
             anim.repeats = self.pinwheel_repeats
         elif name == "hue_shift":
-            anim.set_bands(self.hue_bands)
+            anim.set_mode(self.hue_mode)
 
     def _cycle_animation(self, delta):
         step = 1 if delta > 0 else -1
@@ -345,7 +345,7 @@ class Controller:
         elif name == "pinwheel":
             self.pinwheel_repeats = _clamp(self.pinwheel_repeats + (1 if delta > 0 else -1), 1, 4)
         elif name == "hue_shift":
-            self.hue_bands = _clamp(self.hue_bands + (1 if delta > 0 else -1), 1, HUE_MAX_BANDS)
+            self.hue_mode = _clamp(self.hue_mode + (1 if delta > 0 else -1), 1, HUE_MAX_MODES)
         self._apply_anim_param()
         self._update_leds()
         self._request_publish()
@@ -426,7 +426,7 @@ class Controller:
         value for the current animation, so a later dial turn doesn't snap it back."""
         name = ANIMATIONS[self.anim_index]
         if name == "hue_shift":
-            self.hue_bands = _clamp(1 + round(value * (HUE_MAX_BANDS - 1)), 1, HUE_MAX_BANDS)
+            self.hue_mode = _clamp(1 + round(value * (HUE_MAX_MODES - 1)), 1, HUE_MAX_MODES)
         elif name == "rainbow_cycle":
             self.rainbow_bandwidth = _clampf(0.1 + value * 1.9, 0.1, 2.0)
         elif name == "cherry_blossom":
@@ -458,7 +458,7 @@ class Controller:
             elif name == "pinwheel":
                 right = (0, min(60, 15 * int(self.pinwheel_repeats)), 30)
             elif name == "hue_shift":
-                b = min(60, 4 + self.hue_bands * 5)  # brighter = more bands
+                b = min(60, 4 + self.hue_mode * 5)  # brighter = higher mode
                 right = (b, 0, b)
             else:
                 b = min(60, int(self.rainbow_bandwidth * 12))

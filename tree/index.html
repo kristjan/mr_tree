@@ -698,7 +698,7 @@
         // slider sends 0-100 normalized; `param` here is display-only — it maps the
         // normalized value into the effect's own units for the readout label.
         const FX_META = {
-            hue_shift: { icon: '🎨', label: 'Hue Shift', param: { label: 'Colors', min: 1, max: 5, fmt: v => Math.round(v) } },
+            hue_shift: { icon: '🎨', label: 'Hue Shift', param: { label: 'Segments', min: 1, max: 5, fmt: v => ['', '1 · Whole tree', '2 · Trunk + branches', '3 · Opposite pairs', '4 · Pair + 2 solo', '5 · Every segment'][Math.round(v)] } },
             rainbow_cycle: { icon: '🌈', label: 'Rainbow', param: { label: 'Color spread', min: 0.1, max: 2.0, fmt: v => v.toFixed(1) + '×' } },
             cherry_blossom: { icon: '🌸', label: 'Blossom', param: { label: 'Blossom mix', min: 0.1, max: 0.9, fmt: v => Math.round(v * 100) + '%' } },
             pinwheel: { icon: '🌀', label: 'Pinwheel', param: { label: 'Repeats', min: 1, max: 4, fmt: v => Math.round(v) } },
