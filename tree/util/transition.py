@@ -19,9 +19,22 @@ Start/target color containers may be a single `(r, g, b)` tuple (uniform, cheap)
 100-long list (per-pixel snapshot). `report_color` / `report_brightness`, when set,
 are what `Tree.state()` reports to Home Assistant so HA sees the *target* immediately
 rather than an intermediate frame.
+
+**Dithering.** NeoPixel applies brightness as `output = int(value * brightness)`, so
+at a low brightness (e.g. 0.06) a channel only has ~16 distinct output levels — a
+crossfade of the whole strand shows those as a handful of visible steps regardless
+of frame rate. To hide that, a pixel-owning transition dithers: it decides per pixel
+whether to round each channel's output up or down using a fixed per-pixel threshold,
+so neighbouring LEDs land on different levels and the eye averages them to a finer
+color than any single LED can show. The final frame writes the exact target values so
+the buffer ends holding true colors for the rest of the system to read.
 """
 
 import time
+
+# Golden-ratio increment gives a well-spread, low-discrepancy per-pixel dither
+# threshold sequence (no visible banding, unlike a linear ramp).
+_DITHER_STEP = 0.6180339887498949
 
 
 def _ease(p):
@@ -55,6 +68,12 @@ class Transition:
         # tuple for all 100 pixels every frame (which would churn the GC and show
         # up as visible stutter in the fade).
         self._scratch = [0, 0, 0]
+        # Fixed per-pixel dither threshold (0..1). Only built for pixel-owning
+        # transitions, which are the ones that quantize visibly at low brightness.
+        if owns_pixels:
+            self._dither = [(i * _DITHER_STEP) % 1.0 for i in range(len(string))]
+        else:
+            self._dither = None
 
     def set_brightness_target(self, target_brightness):
         """Retarget the brightness ramp mid-flight (e.g. HA sends brightness after
@@ -85,6 +104,7 @@ class Transition:
             p = 1.0
 
         if self.owns_pixels:
+            done = p >= 1.0
             inv = 1.0 - self.spread
             plain = self.spread <= 0.0 or inv <= 0.0
             string = self.string
@@ -92,6 +112,12 @@ class Transition:
             target, t_list = self.target_pixels, self._target_is_list
             delays, spread = self.delays, self.spread
             scratch = self._scratch
+            dither_tbl = self._dither
+            b = string.brightness
+            # Dither only mid-fade and only when brightness actually quantizes; the
+            # final frame writes exact target values so the buffer holds true colors.
+            do_dither = (not done) and b > 0.0
+            inv_b = (1.0 / b) if b > 0.0 else 0.0
             for i in range(len(string)):
                 if plain:
                     lp = p
@@ -104,9 +130,44 @@ class Transition:
                 e = lp * lp * (3.0 - 2.0 * lp)
                 s = start[i] if s_list else start
                 t = target[i] if t_list else target
-                scratch[0] = int(s[0] + (t[0] - s[0]) * e)
-                scratch[1] = int(s[1] + (t[1] - s[1]) * e)
-                scratch[2] = int(s[2] + (t[2] - s[2]) * e)
+                if done:
+                    scratch[0] = t[0]
+                    scratch[1] = t[1]
+                    scratch[2] = t[2]
+                elif do_dither:
+                    # Round each channel's physical output up or down against a
+                    # per-pixel/per-channel threshold, then store the buffer value
+                    # that lands on that output. Offset the threshold per channel so
+                    # the dither noise stays neutral rather than tinting the color.
+                    th = dither_tbl[i]
+                    v = s[0] + (t[0] - s[0]) * e
+                    d = v * b
+                    lo = int(d)
+                    o = lo + 1 if (d - lo) > th else lo
+                    q = int((o + 0.5) * inv_b)
+                    scratch[0] = 255 if q > 255 else q
+                    th1 = th + 0.333
+                    if th1 > 1.0:
+                        th1 -= 1.0
+                    v = s[1] + (t[1] - s[1]) * e
+                    d = v * b
+                    lo = int(d)
+                    o = lo + 1 if (d - lo) > th1 else lo
+                    q = int((o + 0.5) * inv_b)
+                    scratch[1] = 255 if q > 255 else q
+                    th2 = th + 0.667
+                    if th2 > 1.0:
+                        th2 -= 1.0
+                    v = s[2] + (t[2] - s[2]) * e
+                    d = v * b
+                    lo = int(d)
+                    o = lo + 1 if (d - lo) > th2 else lo
+                    q = int((o + 0.5) * inv_b)
+                    scratch[2] = 255 if q > 255 else q
+                else:
+                    scratch[0] = int(s[0] + (t[0] - s[0]) * e)
+                    scratch[1] = int(s[1] + (t[1] - s[1]) * e)
+                    scratch[2] = int(s[2] + (t[2] - s[2]) * e)
                 string[i] = scratch
 
         if self.start_brightness != self.target_brightness:
