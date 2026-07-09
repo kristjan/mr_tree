@@ -723,9 +723,26 @@ def capture_singles_db(request: Request, dur: str, bright: str):
 def hex_to_rgb(hex):
     return tuple(int(hex[i:i+2], 16) for i in (0, 2, 4))
 
+# Deferred hard reset: /reboot sets this, handle_requests performs it after the
+# HTTP response has flushed so the client gets a clean reply instead of a dropped
+# connection. Reboot is how a deploy takes effect — code.py/tree.py only load at
+# boot, so `./deploy.sh && curl .../reboot` picks up changes without cutting power.
+_reboot_at = None
+
+@server.route("/reboot")
+def reboot(request: Request):
+    """Schedule a hard reset shortly after this response flushes."""
+    global _reboot_at
+    _reboot_at = time.monotonic() + 0.5
+    return Response(request, json.dumps({"message": "Rebooting"}), content_type="application/json")
+
 async def handle_requests():
     while True:
         server.poll()
+        if _reboot_at is not None and time.monotonic() >= _reboot_at:
+            import microcontroller
+            print("Reboot requested via /reboot; resetting now")
+            microcontroller.reset()
         await asyncio.sleep(0)  # Yield control immediately to other tasks
 
 async def handle_mqtt():
