@@ -21,6 +21,7 @@ BRANCHES = 4
 # index -> segment (0 = trunk, 1..4 = branch). Hand corrections from the viewer.
 OVERRIDES = {
     32: 3,   # low on branch 3, sits ~on the trunk axis so its angle is unreliable
+    46: 1,   # low near the trunk axis; belongs with branch 1 (near bulb 33)
 }
 
 COORDS = "tree/coordinates.csv"
