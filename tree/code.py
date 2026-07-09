@@ -16,6 +16,7 @@ from tree import Tree
 from effects.timer import Timer
 from util.encoders import Dials
 from util.controller import Controller
+from util.board_leds import BoardLeds
 from util.mqtt import (
     set_mqtt_client, publish_message,
     MQTT_TOPIC_STATE, MQTT_TOPIC_SET, MQTT_TOPIC_AVAILABILITY,
@@ -34,6 +35,12 @@ print("Creating tree...")
 tree = Tree()
 print("Tree created!")
 tree.on()
+
+# Keep the microcontroller's onboard status LEDs dark, and dark whenever the tree
+# powers off, so nothing on the board glows alongside the strand.
+print("Blanking onboard board LEDs...")
+board_leds = BoardLeds()
+tree.add_power_listener(board_leds.set_power)
 
 print("Connecting to WiFi...")
 for attempt in range(10):
@@ -584,6 +591,7 @@ def _inspect_light(indices):
     """Testbed helper: freeze animations and light exactly `indices` white so a
     physical LED can be located (for section tagging and coordinate fixing)."""
     tree.pause()
+    tree.cancel_transition()
     if tree.string.brightness == 0:
         tree.string.brightness = 0.3  # ensure visible even if the tree was 'off'
     tree.string.fill((0, 0, 0))
@@ -743,6 +751,7 @@ async def run_capture(dur):
     gap, marker = 0.4, 1.0
     prev_brightness = tree.string.brightness
     tree.pause()
+    tree.cancel_transition()
     tree.string.brightness = _capture_bright
     print(f"Capture: {bits} bit-frames over ~{n} LEDs, {dur}s each, brightness {_capture_bright}")
 
@@ -773,6 +782,7 @@ async def run_capture_singles(dur, gap, bright):
     n = len(tree.string)
     prev_brightness = tree.string.brightness
     tree.pause()
+    tree.cancel_transition()
     tree.string.brightness = bright
     print(f"Capture singles: {n} LEDs, {dur}s each, brightness {bright}")
 
