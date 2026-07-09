@@ -77,7 +77,11 @@ mqtt_client = MQTT(
     username=os.getenv("MQTT_USERNAME"),
     password=os.getenv("MQTT_PASSWORD"),
     socket_pool=pool,
-    socket_timeout=0.02,  # 20ms timeout for smooth 30fps animation
+    # A poll with no waiting packet blocks for socket_timeout, and asyncio is
+    # cooperative (single-threaded), so this is the longest MQTT can stall an
+    # animation frame. Keep it well under one fade frame (~16ms at 60fps) so fades
+    # don't step; MQTT command/state packets are small and still read fine in 5ms.
+    socket_timeout=0.005,
     recv_timeout=5  # bound blocking connect/reconnect below the 10s watchdog window
 )
 
@@ -706,8 +710,16 @@ async def handle_mqtt():
     max_retries = 5
 
     while True:
+        # Stand aside while a fade/sprout/drain is rendering: a blocking socket
+        # read on this single-threaded loop would stall the render mid-fade and
+        # make it visibly step. Fades are ~1s; incoming packets wait in the socket
+        # buffer and are picked up right after.
+        if tree.is_transitioning():
+            await asyncio.sleep(0.005)
+            continue
+
         try:
-            mqtt_client.loop(timeout=0.02)  # Must be >= socket timeout (0.02s)
+            mqtt_client.loop(timeout=0.005)  # Must be >= socket_timeout (0.005s)
             connection_retries = 0  # Reset retry counter on successful loop
         except Exception as e:
             print(f"MQTT error: {e}")

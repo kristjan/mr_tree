@@ -278,6 +278,15 @@ class Tree:
     """Drop any in-flight fade so a caller can take over the buffer immediately."""
     self._transition = None
 
+  def is_transitioning(self):
+    """Whether a fade/sprout/drain is currently rendering.
+
+    asyncio is cooperative and single-threaded, so any task that blocks (notably
+    the MQTT socket read) stalls the render loop mid-fade and makes the fade step.
+    The MQTT task uses this to stand aside for the ~1s a transition takes.
+    """
+    return self._transition is not None
+
   def resume(self):
     if self.animation:
       self.animation.resume()
