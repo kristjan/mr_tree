@@ -334,23 +334,28 @@ class Tree:
 
   async def animate(self):
     while True:
-      stepped = False
+      transitioning = False
 
       if self._transition is not None:
+        transitioning = True
         if self._transition.update():
           on_done = self._transition.on_done
           self._transition = None
           if on_done:
             on_done()
-        stepped = True
 
       # A pixel-owning transition freezes the animation (they share the buffer); a
       # brightness-only transition can run concurrently with a live animation.
-      if self.animation and not self.animation.frozen:
+      animating = self.animation and not self.animation.frozen
+      if animating:
         self.animation.animate()
-        stepped = True
 
-      if stepped:
+      if transitioning:
+        # Fades are subtle, so run them fast: at ~30fps a sprout only gets a
+        # handful of frames per pixel and the steps are visible. Position is
+        # time-based, so a higher rate just means finer, smoother steps.
+        await asyncio.sleep(0.012)  # ~50-60fps
+      elif animating:
         await asyncio.sleep(0.033)  # ~30fps is plenty smooth for LED animations
       else:
         await asyncio.sleep(0.3)

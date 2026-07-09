@@ -50,6 +50,11 @@ class Transition:
         self.on_done = on_done
         self.done = False
         self.start_time = time.monotonic()
+        # Reused per-pixel write buffer. NeoPixel.__setitem__ copies the values
+        # out, so mutating and re-assigning one list avoids allocating a fresh
+        # tuple for all 100 pixels every frame (which would churn the GC and show
+        # up as visible stutter in the fade).
+        self._scratch = [0, 0, 0]
 
     def set_brightness_target(self, target_brightness):
         """Retarget the brightness ramp mid-flight (e.g. HA sends brightness after
@@ -85,23 +90,24 @@ class Transition:
             string = self.string
             start, s_list = self.start_pixels, self._start_is_list
             target, t_list = self.target_pixels, self._target_is_list
+            delays, spread = self.delays, self.spread
+            scratch = self._scratch
             for i in range(len(string)):
                 if plain:
                     lp = p
                 else:
-                    lp = (p - self.spread * self.delays[i]) / inv
+                    lp = (p - spread * delays[i]) / inv
                     if lp < 0.0:
                         lp = 0.0
                     elif lp > 1.0:
                         lp = 1.0
-                e = _ease(lp)
+                e = lp * lp * (3.0 - 2.0 * lp)
                 s = start[i] if s_list else start
                 t = target[i] if t_list else target
-                string[i] = (
-                    int(s[0] + (t[0] - s[0]) * e),
-                    int(s[1] + (t[1] - s[1]) * e),
-                    int(s[2] + (t[2] - s[2]) * e),
-                )
+                scratch[0] = int(s[0] + (t[0] - s[0]) * e)
+                scratch[1] = int(s[1] + (t[1] - s[1]) * e)
+                scratch[2] = int(s[2] + (t[2] - s[2]) * e)
+                string[i] = scratch
 
         if self.start_brightness != self.target_brightness:
             e = _ease(p)
