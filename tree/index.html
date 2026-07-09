@@ -3,263 +3,942 @@
 
 <head>
     <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Tree Control</title>
-    <link rel="stylesheet" href="https://cdn.jsdelivr.net/gh/mdbassit/Coloris@latest/dist/coloris.min.css" />
-    <script src="https://cdn.jsdelivr.net/gh/mdbassit/Coloris@latest/dist/coloris.min.js"></script>
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0">
+    <meta name="theme-color" content="#0b1220">
+    <title>Mr Tree</title>
     <style>
-        #stateDisplay {
-            margin-top: 20px;
-            padding: 10px;
-            border: 1px solid #ccc;
-            border-radius: 5px;
-            background-color: #f5f5f5;
+        :root {
+            --bg: #0b1220;
+            --bg-2: #101a30;
+            --card: rgba(255, 255, 255, 0.045);
+            --card-brd: rgba(255, 255, 255, 0.09);
+            --ink: #eef2fb;
+            --ink-dim: #9aa6bd;
+            --ink-faint: #66718a;
+            --accent: #46d19e;
+            --accent-2: #6aa8ff;
+            --danger: #ff6b7d;
+            --radius: 18px;
+            --shadow: 0 12px 34px rgba(0, 0, 0, 0.38);
+            --tree: #46d19e;
+            /* live-updated to perceived color */
         }
 
-        .state-item {
-            margin: 5px 0;
+        * {
+            box-sizing: border-box;
+            -webkit-tap-highlight-color: transparent;
         }
 
-        .color-preview {
+        html,
+        body {
+            margin: 0;
+            padding: 0;
+        }
+
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+            color: var(--ink);
+            min-height: 100vh;
+            background:
+                radial-gradient(1100px 620px at 78% -8%, rgba(106, 168, 255, 0.16), transparent 60%),
+                radial-gradient(950px 560px at 12% 108%, rgba(70, 209, 158, 0.14), transparent 60%),
+                linear-gradient(165deg, var(--bg) 0%, var(--bg-2) 100%);
+            background-attachment: fixed;
+            padding: 20px 16px 56px;
+        }
+
+        .wrap {
+            max-width: 560px;
+            margin: 0 auto;
+        }
+
+        header {
+            display: flex;
+            align-items: center;
+            gap: 12px;
+            padding: 6px 4px 20px;
+        }
+
+        .logo {
+            font-size: 30px;
+            line-height: 1;
+            filter: drop-shadow(0 0 12px rgba(70, 209, 158, 0.45));
+        }
+
+        header h1 {
+            font-size: 20px;
+            font-weight: 650;
+            letter-spacing: 0.2px;
+            margin: 0;
+            flex: 1;
+        }
+
+        header h1 small {
+            display: block;
+            font-size: 12px;
+            font-weight: 500;
+            color: var(--ink-faint);
+            letter-spacing: 0.3px;
+            margin-top: 2px;
+        }
+
+        .conn {
+            display: inline-flex;
+            align-items: center;
+            gap: 7px;
+            font-size: 12px;
+            color: var(--ink-dim);
+            padding: 6px 11px;
+            border: 1px solid var(--card-brd);
+            border-radius: 999px;
+            background: var(--card);
+        }
+
+        .dot {
+            width: 8px;
+            height: 8px;
+            border-radius: 50%;
+            background: var(--ink-faint);
+            box-shadow: 0 0 0 0 rgba(70, 209, 158, 0.5);
+            transition: background 0.3s;
+        }
+
+        .dot.ok {
+            background: var(--accent);
+            animation: pulse 2.4s infinite;
+        }
+
+        .dot.bad {
+            background: var(--danger);
+        }
+
+        @keyframes pulse {
+            0% {
+                box-shadow: 0 0 0 0 rgba(70, 209, 158, 0.45);
+            }
+
+            70% {
+                box-shadow: 0 0 0 7px rgba(70, 209, 158, 0);
+            }
+
+            100% {
+                box-shadow: 0 0 0 0 rgba(70, 209, 158, 0);
+            }
+        }
+
+        .card {
+            background: var(--card);
+            border: 1px solid var(--card-brd);
+            border-radius: var(--radius);
+            padding: 18px 18px 20px;
+            margin-bottom: 16px;
+            box-shadow: var(--shadow);
+            backdrop-filter: blur(8px);
+            -webkit-backdrop-filter: blur(8px);
+        }
+
+        .card h2 {
+            font-size: 12px;
+            text-transform: uppercase;
+            letter-spacing: 1.3px;
+            color: var(--ink-dim);
+            font-weight: 600;
+            margin: 0 0 15px;
+            display: flex;
+            align-items: center;
+            gap: 8px;
+        }
+
+        .card h2 .val {
+            margin-left: auto;
+            text-transform: none;
+            letter-spacing: 0;
+            color: var(--ink);
+            font-weight: 600;
+            font-variant-numeric: tabular-nums;
+        }
+
+        /* Power hero */
+        .power {
+            display: flex;
+            align-items: center;
+            gap: 16px;
+        }
+
+        .power-orb {
+            width: 62px;
+            height: 62px;
+            border-radius: 50%;
+            flex-shrink: 0;
+            background: radial-gradient(circle at 35% 30%, var(--tree), rgba(0, 0, 0, 0.35));
+            box-shadow: 0 0 26px -2px var(--tree), inset 0 0 12px rgba(0, 0, 0, 0.35);
+            transition: box-shadow 0.4s, filter 0.4s, background 0.4s;
+        }
+
+        .power-orb.off {
+            filter: grayscale(1) brightness(0.4);
+            box-shadow: inset 0 0 12px rgba(0, 0, 0, 0.6);
+        }
+
+        .power-info {
+            flex: 1;
+            min-width: 0;
+        }
+
+        .power-info .lbl {
+            font-size: 13px;
+            color: var(--ink-dim);
+        }
+
+        .power-info .now {
+            font-size: 21px;
+            font-weight: 650;
+            margin-top: 1px;
+        }
+
+        .toggle {
+            display: inline-flex;
+            padding: 4px;
+            background: rgba(0, 0, 0, 0.28);
+            border: 1px solid var(--card-brd);
+            border-radius: 999px;
+        }
+
+        .toggle button {
+            border: 0;
+            background: transparent;
+            color: var(--ink-dim);
+            font-size: 14px;
+            font-weight: 600;
+            padding: 9px 17px;
+            border-radius: 999px;
+            cursor: pointer;
+            transition: all 0.2s;
+        }
+
+        .toggle button.on-active {
+            background: var(--accent);
+            color: #05221a;
+        }
+
+        .toggle button.off-active {
+            background: rgba(255, 255, 255, 0.12);
+            color: var(--ink);
+        }
+
+        /* Color */
+        .swatches {
+            display: grid;
+            grid-template-columns: repeat(auto-fill, minmax(38px, 1fr));
+            gap: 9px;
+            margin-bottom: 15px;
+        }
+
+        .swatch {
+            aspect-ratio: 1;
+            border-radius: 12px;
+            border: 2px solid transparent;
+            cursor: pointer;
+            transition: transform 0.12s, border-color 0.15s;
+            box-shadow: inset 0 0 0 1px rgba(255, 255, 255, 0.12);
+        }
+
+        .swatch:active {
+            transform: scale(0.9);
+        }
+
+        .swatch.sel {
+            border-color: #fff;
+            box-shadow: 0 0 12px -1px currentColor;
+        }
+
+        .custom-color {
+            display: flex;
+            align-items: center;
+            gap: 12px;
+        }
+
+        .custom-color label {
+            font-size: 13px;
+            color: var(--ink-dim);
+        }
+
+        .picker-well {
+            position: relative;
+            width: 46px;
+            height: 46px;
+            border-radius: 12px;
+            overflow: hidden;
+            border: 1px solid var(--card-brd);
+            flex-shrink: 0;
+        }
+
+        .picker-well input[type=color] {
+            position: absolute;
+            top: -6px;
+            left: -6px;
+            width: 60px;
+            height: 60px;
+            border: 0;
+            padding: 0;
+            background: transparent;
+            cursor: pointer;
+        }
+
+        .hexval {
+            font-variant-numeric: tabular-nums;
+            font-size: 14px;
+            color: var(--ink);
+            letter-spacing: 0.5px;
+            text-transform: uppercase;
+        }
+
+        /* Sliders */
+        input[type=range] {
+            -webkit-appearance: none;
+            appearance: none;
+            width: 100%;
+            height: 12px;
+            border-radius: 999px;
+            background: rgba(255, 255, 255, 0.1);
+            outline: none;
+            margin: 4px 0 2px;
+        }
+
+        input[type=range]::-webkit-slider-thumb {
+            -webkit-appearance: none;
+            appearance: none;
+            width: 26px;
+            height: 26px;
+            border-radius: 50%;
+            background: #fff;
+            border: 3px solid var(--accent);
+            box-shadow: 0 3px 10px rgba(0, 0, 0, 0.4);
+            cursor: pointer;
+        }
+
+        input[type=range]::-moz-range-thumb {
+            width: 22px;
+            height: 22px;
+            border-radius: 50%;
+            background: #fff;
+            border: 3px solid var(--accent);
+            box-shadow: 0 3px 10px rgba(0, 0, 0, 0.4);
+            cursor: pointer;
+        }
+
+        .brightness input[type=range] {
+            background: linear-gradient(90deg, #1a2338, #fff5cc);
+        }
+
+        .speed input[type=range] {
+            background: linear-gradient(90deg, var(--accent-2), var(--accent));
+        }
+
+        .param input[type=range] {
+            background: linear-gradient(90deg, #ff5f9e, #ffd166, #46d19e, #6aa8ff);
+        }
+
+        /* Effects */
+        .effects {
+            display: grid;
+            grid-template-columns: repeat(auto-fill, minmax(96px, 1fr));
+            gap: 10px;
+        }
+
+        .fx {
+            border: 1px solid var(--card-brd);
+            background: rgba(255, 255, 255, 0.03);
+            border-radius: 14px;
+            padding: 14px 8px 11px;
+            text-align: center;
+            cursor: pointer;
+            transition: all 0.18s;
+            color: var(--ink);
+        }
+
+        .fx:active {
+            transform: scale(0.96);
+        }
+
+        .fx .ico {
+            font-size: 26px;
+            line-height: 1;
+        }
+
+        .fx .nm {
+            font-size: 12px;
+            font-weight: 550;
+            margin-top: 8px;
+            color: var(--ink-dim);
+        }
+
+        .fx.sel {
+            border-color: var(--accent);
+            background: rgba(70, 209, 158, 0.14);
+            box-shadow: 0 0 0 1px var(--accent) inset;
+        }
+
+        .fx.sel .nm {
+            color: var(--ink);
+        }
+
+        /* Segmented anim controls */
+        .anim-row {
+            display: flex;
+            gap: 10px;
+            margin-top: 16px;
+        }
+
+        .btn {
+            flex: 1;
+            border: 1px solid var(--card-brd);
+            background: rgba(255, 255, 255, 0.05);
+            color: var(--ink);
+            font-size: 14px;
+            font-weight: 600;
+            padding: 12px;
+            border-radius: 12px;
+            cursor: pointer;
+            transition: all 0.16s;
+        }
+
+        .btn:active {
+            transform: scale(0.97);
+        }
+
+        .btn:disabled {
+            opacity: 0.4;
+            cursor: default;
+            transform: none;
+        }
+
+        .btn.primary {
+            background: var(--accent);
+            border-color: transparent;
+            color: #05221a;
+        }
+
+        .btn.warn {
+            background: rgba(255, 176, 32, 0.16);
+            border-color: rgba(255, 176, 32, 0.3);
+            color: #ffca66;
+        }
+
+        .btn.ghost-danger {
+            background: rgba(255, 107, 125, 0.12);
+            border-color: rgba(255, 107, 125, 0.28);
+            color: var(--danger);
+        }
+
+        /* Timer */
+        .timer-ring {
+            display: flex;
+            align-items: center;
+            gap: 18px;
+            margin-bottom: 6px;
+        }
+
+        .ring {
+            --pct: 0;
+            width: 96px;
+            height: 96px;
+            border-radius: 50%;
+            flex-shrink: 0;
+            display: grid;
+            place-items: center;
+            background:
+                radial-gradient(closest-side, var(--bg-2) 78%, transparent 79%),
+                conic-gradient(var(--tree) calc(var(--pct) * 1%), rgba(255, 255, 255, 0.08) 0);
+            transition: background 0.5s linear;
+        }
+
+        .ring .rem {
+            font-size: 21px;
+            font-weight: 700;
+            font-variant-numeric: tabular-nums;
+        }
+
+        .ring .sub {
+            font-size: 10px;
+            color: var(--ink-faint);
+            text-transform: uppercase;
+            letter-spacing: 1px;
+            margin-top: 1px;
+        }
+
+        .timer-meta {
+            flex: 1;
+            min-width: 0;
+        }
+
+        .badge {
             display: inline-block;
-            width: 20px;
-            height: 20px;
-            border: 1px solid #000;
-            vertical-align: middle;
-            margin-left: 5px;
+            font-size: 11px;
+            font-weight: 700;
+            text-transform: uppercase;
+            letter-spacing: 0.8px;
+            padding: 4px 10px;
+            border-radius: 999px;
+            background: rgba(255, 255, 255, 0.08);
+            color: var(--ink-dim);
+        }
+
+        .badge.running {
+            background: rgba(70, 209, 158, 0.16);
+            color: var(--accent);
+        }
+
+        .badge.paused {
+            background: rgba(255, 176, 32, 0.16);
+            color: #ffca66;
+        }
+
+        .dur-input {
+            display: flex;
+            align-items: center;
+            gap: 8px;
+            margin-top: 14px;
+        }
+
+        .stepper {
+            display: flex;
+            align-items: center;
+            background: rgba(0, 0, 0, 0.28);
+            border: 1px solid var(--card-brd);
+            border-radius: 12px;
+            overflow: hidden;
+            flex: 1;
+        }
+
+        .stepper button {
+            border: 0;
+            background: transparent;
+            color: var(--ink);
+            font-size: 20px;
+            width: 44px;
+            height: 46px;
+            cursor: pointer;
+        }
+
+        .stepper button:active {
+            background: rgba(255, 255, 255, 0.08);
+        }
+
+        .stepper input {
+            flex: 1;
+            border: 0;
+            background: transparent;
+            color: var(--ink);
+            text-align: center;
+            font-size: 16px;
+            font-weight: 600;
+            font-variant-numeric: tabular-nums;
+            min-width: 0;
+            -moz-appearance: textfield;
+        }
+
+        .stepper input::-webkit-outer-spin-button,
+        .stepper input::-webkit-inner-spin-button {
+            -webkit-appearance: none;
+        }
+
+        .quick {
+            display: flex;
+            gap: 8px;
+            margin-top: 10px;
+            flex-wrap: wrap;
+        }
+
+        .chip {
+            border: 1px solid var(--card-brd);
+            background: rgba(255, 255, 255, 0.04);
+            color: var(--ink-dim);
+            font-size: 13px;
+            font-weight: 600;
+            padding: 8px 14px;
+            border-radius: 999px;
+            cursor: pointer;
+        }
+
+        .chip:active {
+            transform: scale(0.95);
+        }
+
+        .timer-btns {
+            display: flex;
+            gap: 10px;
+            margin-top: 14px;
+        }
+
+        footer {
+            text-align: center;
+            color: var(--ink-faint);
+            font-size: 11px;
+            margin-top: 10px;
+        }
+
+        .hidden {
+            display: none !important;
         }
     </style>
 </head>
 
 <body>
-    <h1>Tree Control</h1>
-    <button onclick="turnOn()">On</button>
-    <button onclick="turnOff()">Off</button>
-    <br><br>
-    Color <input type="text" id="colorPicker" oninput="setColor()" data-coloris>
-    <br>
-    Brightness <input type="range" id="brightness" min="0" max="100" value="20" onchange="setBrightness()">
-    <br><br>
-    Speed <input type="range" id="speed" min="0" max="100" value="50" onchange="setSpeed()">
-    <br><br>
-    Effect
-    <select id="effectPicker" onchange="updateEffectParams()">
-    </select>
-    <div id="effectParams"></div>
-    <input type="button" value="Set Effect" onclick="setEffect()">
-    <br>
-    <button onclick="sendRequest('/pause')">Pause</button>
-    <button onclick="sendRequest('/resume')">Resume</button>
+    <div class="wrap">
+        <header>
+            <span class="logo">🎄</span>
+            <h1>Mr Tree<small>LED control</small></h1>
+            <span class="conn"><span class="dot" id="connDot"></span><span id="connText">connecting…</span></span>
+        </header>
 
-    <div id="timerControls">
-        <h3>Timer Controls</h3>
-        <div>
-            Duration (seconds): <input type="number" id="timerDuration" value="300" min="1" max="86400">
+        <!-- POWER -->
+        <div class="card">
+            <div class="power">
+                <div class="power-orb" id="powerOrb"></div>
+                <div class="power-info">
+                    <div class="lbl">Tree is</div>
+                    <div class="now" id="powerNow">—</div>
+                </div>
+                <div class="toggle">
+                    <button id="btnOn" onclick="setPower('ON')">On</button>
+                    <button id="btnOff" onclick="setPower('OFF')">Off</button>
+                </div>
+            </div>
         </div>
-        <br>
-        <button onclick="startTimer()">Start Timer</button>
-        <button onclick="pauseTimer()">Pause Timer</button>
-        <button onclick="resumeTimer()">Resume Timer</button>
-        <button onclick="cancelTimer()">Cancel Timer</button>
-        <br><br>
-        <div id="timerState">
-            <div class="state-item">Timer State: <span id="timerStateDisplay">-</span></div>
-            <div class="state-item">Time Remaining: <span id="timerRemaining">-</span>s</div>
-            <div class="state-item">Timer Duration: <span id="timerDurationDisplay">-</span>s</div>
-        </div>
-    </div>
 
-    <div id="stateDisplay">
-        <h3>Current State</h3>
-        <div class="state-item">Power: <span id="powerState">-</span></div>
-        <div class="state-item">
-            Color: <span id="colorState">-</span>
-            <div class="color-preview" id="colorPreview"></div>
+        <!-- COLOR -->
+        <div class="card">
+            <h2>Color</h2>
+            <div class="swatches" id="swatches"></div>
+            <div class="custom-color">
+                <div class="picker-well">
+                    <input type="color" id="picker" value="#ffffff" onchange="pickColor(this.value)">
+                </div>
+                <div>
+                    <label>Custom</label>
+                    <div class="hexval" id="hexVal">#FFFFFF</div>
+                </div>
+            </div>
         </div>
-        <div class="state-item">Brightness: <span id="brightnessState">-</span>%</div>
-        <div class="state-item">Speed: <span id="speedState">-</span>%</div>
-        <div class="state-item">Effect: <span id="effectState">-</span></div>
+
+        <!-- BRIGHTNESS -->
+        <div class="card brightness">
+            <h2>Brightness <span class="val" id="brightVal">—</span></h2>
+            <input type="range" id="brightness" min="0" max="100" value="20"
+                oninput="liveBright(this.value)" onchange="setBrightness(this.value)">
+        </div>
+
+        <!-- EFFECTS -->
+        <div class="card">
+            <h2>Effects</h2>
+            <div class="effects" id="effects"></div>
+            <div class="speed" style="margin-top:18px">
+                <h2 style="margin-bottom:8px">Speed <span class="val" id="speedVal">50%</span></h2>
+                <input type="range" id="speed" min="0" max="100" value="50"
+                    oninput="document.getElementById('speedVal').textContent=this.value+'%'"
+                    onchange="setSpeed(this.value)">
+            </div>
+            <div class="param hidden" id="paramCtl" style="margin-top:18px">
+                <h2 style="margin-bottom:8px"><span id="paramLabel">Style</span> <span class="val" id="paramVal">—</span></h2>
+                <input type="range" id="param" min="0" max="100" value="50"
+                    oninput="liveParam(this.value)" onchange="setParam(this.value)">
+            </div>
+            <div class="anim-row">
+                <button class="btn" id="btnPause" onclick="setAnim('paused')">⏸ Pause</button>
+                <button class="btn" id="btnResume" onclick="setAnim('running')">▶ Resume</button>
+            </div>
+        </div>
+
+        <!-- TIMER -->
+        <div class="card">
+            <h2>Timer <span class="badge" id="timerBadge">idle</span></h2>
+            <div class="timer-ring">
+                <div class="ring" id="ring">
+                    <div style="text-align:center">
+                        <div class="rem" id="timerRem">0:00</div>
+                        <div class="sub">left</div>
+                    </div>
+                </div>
+                <div class="timer-meta">
+                    <div class="dur-input">
+                        <div class="stepper">
+                            <button onclick="bumpDur(-60)">−</button>
+                            <input type="number" id="timerDuration" value="5" min="1" max="1440"
+                                onchange="clampDur()">
+                            <button onclick="bumpDur(60)">+</button>
+                        </div>
+                        <span style="color:var(--ink-dim);font-size:13px">min</span>
+                    </div>
+                    <div class="quick">
+                        <button class="chip" onclick="setDur(1)">1m</button>
+                        <button class="chip" onclick="setDur(5)">5m</button>
+                        <button class="chip" onclick="setDur(10)">10m</button>
+                        <button class="chip" onclick="setDur(30)">30m</button>
+                    </div>
+                </div>
+            </div>
+            <div class="timer-btns">
+                <button class="btn primary" id="btnTimerStart" onclick="startTimer()">Start</button>
+                <button class="btn warn" id="btnTimerToggle" onclick="toggleTimer()">Pause</button>
+                <button class="btn ghost-danger" id="btnTimerCancel" onclick="cancelTimer()">Cancel</button>
+            </div>
+        </div>
+
+        <footer>Mr Tree · 100 pixels in 3D space</footer>
     </div>
 
     <script>
-        Coloris({
-            el: '#colorPicker',
-            theme: 'large',
-            format: 'hex',
-            alpha: false,
-            swatches: [
-                '#FF0000', '#FF1010', '#FF7F00', '#FFFF00', '#7FFF00',
-                '#00FF00', '#00FF7F', '#00FFFF', '#007FFF',
-                '#0000FF', '#7F00FF', '#FF00FF', '#FF007F',
-                '#FFFFFF'
-            ]
+        const SWATCHES = [
+            '#FF0000', '#FF7F00', '#FFC000', '#FFFF00', '#7FFF00',
+            '#00FF00', '#00FF7F', '#00FFFF', '#007FFF', '#0000FF',
+            '#7F00FF', '#FF00FF', '#FF007F', '#FFFFFF'
+        ];
+        // Each animation exposes a secondary parameter (the dial's RIGHT knob). The
+        // slider sends 0-100 normalized; `param` here is display-only — it maps the
+        // normalized value into the effect's own units for the readout label.
+        const FX_META = {
+            hue_shift: { icon: '🎨', label: 'Hue Shift', param: { label: 'Colors', min: 1, max: 5, fmt: v => Math.round(v) } },
+            rainbow_cycle: { icon: '🌈', label: 'Rainbow', param: { label: 'Color spread', min: 0.1, max: 2.0, fmt: v => v.toFixed(1) + '×' } },
+            cherry_blossom: { icon: '🌸', label: 'Blossom', param: { label: 'Blossom mix', min: 0.1, max: 0.9, fmt: v => Math.round(v * 100) + '%' } },
+            pinwheel: { icon: '🌀', label: 'Pinwheel', param: { label: 'Repeats', min: 1, max: 4, fmt: v => Math.round(v) } },
+            sweep: { icon: '📡', label: 'Sweep' },
+            timer: { icon: '⏲️', label: 'Timer' }
+        };
+
+        let curEffect = null;
+        let curParamSpec = null;
+        let timerState = 'idle';
+        // Track drags so the poller doesn't yank a control the user is holding.
+        let dragging = false;
+        document.addEventListener('pointerdown', e => {
+            if (e.target.type === 'range') dragging = true;
         });
+        document.addEventListener('pointerup', () => { dragging = false; });
 
-        function updateEffectParams() {
-            const effect = document.getElementById('effectPicker').value;
-            const paramsDiv = document.getElementById('effectParams');
-            paramsDiv.innerHTML = '';
-
-            if (effect === 'timer') {
-                const durationInput = document.createElement('div');
-                durationInput.innerHTML = `
-                    <br>Duration (seconds):
-                    <input type="number" id="duration" value="300" min="1">
-                `;
-                paramsDiv.appendChild(durationInput);
-            }
-            // Add other effect-specific parameters here as needed
+        // ---- API ----
+        function post(body) {
+            return fetch('/state', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify(body)
+            }).then(r => r.json()).then(applyState).then(() => setConn(true))
+                .catch(() => setConn(false));
+        }
+        function get(url) {
+            return fetch(url).then(r => r.json());
         }
 
-        function populateEffects(effects) {
-            const picker = document.getElementById('effectPicker');
-            picker.innerHTML = effects.map(effect =>
-                `<option value="${effect}">${effect}</option>`
-            ).join('');
-            updateEffectParams();
+        function setConn(ok) {
+            const d = document.getElementById('connDot');
+            const t = document.getElementById('connText');
+            d.className = 'dot ' + (ok ? 'ok' : 'bad');
+            t.textContent = ok ? 'online' : 'offline';
         }
 
-        function sendRequest(endpoint, method = 'GET', body = null) {
-            const options = {
-                method: method,
-                headers: body ? { 'Content-Type': 'application/json' } : {}
-            };
-            if (body) {
-                options.body = JSON.stringify(body);
-            }
-
-            return fetch(endpoint, options)
-                .then(response => {
-                    if (method === 'POST' && endpoint === '/state') {
-                        return response.json();
-                    }
-                    return response.text();
-                })
-                .then(data => {
-                    console.log(data);
-                    if (method === 'POST' && endpoint === '/state') {
-                        updateStateDisplay(data);
-                    } else {
-                        updateState();
-                    }
-                });
+        // ---- Color ----
+        function hexToRgb(h) {
+            return { r: parseInt(h.substr(1, 2), 16), g: parseInt(h.substr(3, 2), 16), b: parseInt(h.substr(5, 2), 16) };
         }
-
-        function updateStateDisplay(state) {
-            document.getElementById('powerState').textContent = state.state;
-            // Convert 0-255 to 0-100 for slider
-            const brightness_pct = Math.round(state.brightness / 2.55);
-            document.getElementById('brightnessState').textContent = brightness_pct;
-            document.getElementById('speedState').textContent = state.speed;
-            document.getElementById('effectState').textContent = state.effect || 'None';
-
-            const color = state.color;
-            const colorHex = `rgb(${color.r}, ${color.g}, ${color.b})`;
-            document.getElementById('colorState').textContent = colorHex;
-            document.getElementById('colorPreview').style.backgroundColor = colorHex;
-
-            // Update slider positions
-            document.getElementById('brightness').value = brightness_pct;
-            document.getElementById('speed').value = state.speed;
-
-            // Only populate effects list if it's empty (first load)
-            const picker = document.getElementById('effectPicker');
-            if (!picker.options.length && state.available_effects) {
-                populateEffects(state.available_effects);
-            }
+        function rgbToHex(r, g, b) {
+            return '#' + [r, g, b].map(v => v.toString(16).padStart(2, '0')).join('').toUpperCase();
         }
-
-        function updateState() {
-            fetch('/state')
-                .then(response => response.json())
-                .then(state => updateStateDisplay(state))
-                .catch(error => console.error('Error fetching state:', error));
-        }
-
-        function setColor() {
-            const colorHex = document.getElementById('colorPicker').value;
-            // Convert hex to RGB
-            const r = parseInt(colorHex.substring(1, 3), 16);
-            const g = parseInt(colorHex.substring(3, 5), 16);
-            const b = parseInt(colorHex.substring(5, 7), 16);
-            sendRequest('/state', 'POST', { color: { r, g, b } });
-        }
-
-        function setBrightness() {
-            const brightness = parseInt(document.getElementById('brightness').value);
-            // Convert 0-100 to 0-255
-            const ha_brightness = Math.round(brightness * 2.55);
-            sendRequest('/state', 'POST', { brightness: ha_brightness });
-        }
-
-        function setSpeed() {
-            const speed = parseInt(document.getElementById('speed').value);
-            sendRequest('/state', 'POST', { speed });
-        }
-
-        function setEffect() {
-            const effect = document.getElementById('effectPicker').value;
-            const params = {};
-
-            // Collect effect-specific parameters
-            if (effect === 'timer') {
-                const duration = document.getElementById('duration').value;
-                params.duration = parseInt(duration);
-            }
-            // Add other effect parameter collection here as needed
-
-            sendRequest('/state', 'POST', {
-                effect,
-                effect_params: params
+        function buildSwatches() {
+            const box = document.getElementById('swatches');
+            box.innerHTML = '';
+            SWATCHES.forEach(hex => {
+                const s = document.createElement('div');
+                s.className = 'swatch';
+                s.style.background = hex;
+                s.style.color = hex;
+                s.dataset.hex = hex;
+                s.onclick = () => pickColor(hex);
+                box.appendChild(s);
             });
         }
-
-        function turnOn() {
-            sendRequest('/state', 'POST', { state: "ON" });
+        function pickColor(hex) {
+            hex = hex.toUpperCase();
+            document.getElementById('picker').value = hex;
+            document.getElementById('hexVal').textContent = hex;
+            markSwatch(hex);
+            const c = hexToRgb(hex);
+            post({ color: c });
+        }
+        function markSwatch(hex) {
+            document.querySelectorAll('.swatch').forEach(s =>
+                s.classList.toggle('sel', s.dataset.hex.toUpperCase() === hex.toUpperCase()));
         }
 
-        function turnOff() {
-            sendRequest('/state', 'POST', { state: "OFF" });
+        // ---- Brightness / speed ----
+        function liveBright(v) { document.getElementById('brightVal').textContent = v + '%'; }
+        function setBrightness(v) { post({ brightness: Math.round(v * 2.55) }); }
+        function setSpeed(v) { post({ speed: parseInt(v) }); }
+        function setParam(v) { post({ param: parseInt(v) }); }
+        function liveParam(v) {
+            const el = document.getElementById('paramVal');
+            if (!curParamSpec) { el.textContent = v + '%'; return; }
+            const s = curParamSpec;
+            el.textContent = s.fmt(s.min + (v / 100) * (s.max - s.min));
+        }
+        // Show the second control (with an effect-specific label/units) for the
+        // active effect; hide it for effects that have no second parameter.
+        function updateParamControl(effect, paramValue) {
+            const meta = FX_META[effect];
+            const spec = meta && meta.param;
+            curParamSpec = spec || null;
+            const ctl = document.getElementById('paramCtl');
+            if (!spec) { ctl.classList.add('hidden'); return; }
+            ctl.classList.remove('hidden');
+            document.getElementById('paramLabel').textContent = spec.label;
+            const slider = document.getElementById('param');
+            if (!dragging && paramValue != null) slider.value = paramValue;
+            liveParam(slider.value);
         }
 
+        // ---- Power ----
+        function setPower(s) { post({ state: s }); }
+
+        // ---- Effects ----
+        function buildEffects(list) {
+            const box = document.getElementById('effects');
+            box.innerHTML = '';
+            list.filter(e => e !== 'timer').forEach(name => {
+                const meta = FX_META[name] || { icon: '✨', label: name };
+                const el = document.createElement('div');
+                el.className = 'fx';
+                el.dataset.fx = name;
+                el.innerHTML = `<div class="ico">${meta.icon}</div><div class="nm">${meta.label}</div>`;
+                el.onclick = () => selectEffect(name);
+                box.appendChild(el);
+            });
+        }
+        function selectEffect(name) {
+            const speed = parseInt(document.getElementById('speed').value);
+            post({ effect: name, effect_params: {}, speed });
+        }
+        function markEffect(name) {
+            curEffect = name;
+            document.querySelectorAll('.fx').forEach(f =>
+                f.classList.toggle('sel', f.dataset.fx === name));
+        }
+
+        // ---- Animation pause/resume ----
+        function setAnim(state) { post({ animation_state: state }); }
+
+        // ---- State render ----
+        function applyState(st) {
+            if (!st || !st.state) return;
+            const on = st.state === 'ON';
+            document.getElementById('powerNow').textContent = on ? 'On' : 'Off';
+            document.getElementById('powerOrb').classList.toggle('off', !on);
+            document.getElementById('btnOn').className = on ? 'on-active' : '';
+            document.getElementById('btnOff').className = on ? '' : 'off-active';
+
+            const b = Math.round(st.brightness / 2.55);
+            if (!dragging) {
+                document.getElementById('brightness').value = b;
+                liveBright(b);
+            }
+
+            if (st.color) {
+                const hex = rgbToHex(st.color.r, st.color.g, st.color.b);
+                document.getElementById('hexVal').textContent = hex;
+                document.getElementById('picker').value = hex;
+                markSwatch(hex);
+                // Tint the accents with the tree's live perceived color.
+                document.documentElement.style.setProperty('--tree', hex);
+            }
+
+            if (st.available_effects && !document.querySelector('.fx')) {
+                buildEffects(st.available_effects);
+            }
+            markEffect(st.effect);
+            updateParamControl(st.effect, st.param);
+
+            const running = st.animation_state !== 'paused';
+            document.getElementById('btnPause').disabled = !running;
+            document.getElementById('btnResume').disabled = running;
+        }
+
+        // ---- Timer ----
+        function clampDur() {
+            const el = document.getElementById('timerDuration');
+            let v = parseInt(el.value) || 1;
+            el.value = Math.max(1, Math.min(1440, v));
+        }
+        function setDur(m) { document.getElementById('timerDuration').value = m; }
+        function bumpDur(sec) {
+            const el = document.getElementById('timerDuration');
+            let v = (parseInt(el.value) || 0) + sec / 60;
+            el.value = Math.max(1, Math.min(1440, Math.round(v)));
+        }
+        function durSeconds() {
+            clampDur();
+            return parseInt(document.getElementById('timerDuration').value) * 60;
+        }
         function startTimer() {
-            const duration = parseInt(document.getElementById('timerDuration').value);
-            sendRequest('/timer/start', 'POST', { duration })
-                .then(() => updateTimerState());
+            fetch('/timer/start', {
+                method: 'POST', headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ duration: durSeconds() })
+            }).then(pollTimer);
         }
-
-        function pauseTimer() {
-            sendRequest('/timer/pause', 'POST')
-                .then(() => updateTimerState());
+        function toggleTimer() {
+            const ep = timerState === 'running' ? '/timer/pause' : '/timer/resume';
+            fetch(ep, { method: 'POST' }).then(pollTimer);
         }
-
-        function resumeTimer() {
-            sendRequest('/timer/resume', 'POST')
-                .then(() => updateTimerState());
-        }
-
         function cancelTimer() {
-            sendRequest('/timer/cancel', 'POST')
-                .then(() => updateTimerState());
+            fetch('/timer/cancel', { method: 'POST' }).then(pollTimer);
+        }
+        function fmt(s) {
+            s = Math.max(0, Math.round(s));
+            const m = Math.floor(s / 60);
+            const ss = (s % 60).toString().padStart(2, '0');
+            if (m >= 60) {
+                const h = Math.floor(m / 60);
+                return h + ':' + (m % 60).toString().padStart(2, '0') + ':' + ss;
+            }
+            return m + ':' + ss;
+        }
+        function renderTimer(t) {
+            // The firmware reports a running timer as "active" (HA convention); treat
+            // it as running for the controls.
+            const running = t.state === 'active' || t.state === 'running';
+            const paused = t.state === 'paused';
+            const active = running || paused;
+            timerState = running ? 'running' : (paused ? 'paused' : 'idle');
+
+            const badge = document.getElementById('timerBadge');
+            badge.textContent = timerState;
+            badge.className = 'badge ' + (running ? 'running' : (paused ? 'paused' : ''));
+            document.getElementById('timerRem').textContent = fmt(t.remaining);
+            const pct = t.duration > 0 ? (t.remaining / t.duration) * 100 : 0;
+            document.getElementById('ring').style.setProperty('--pct', pct);
+
+            const start = document.getElementById('btnTimerStart');
+            const toggle = document.getElementById('btnTimerToggle');
+            const cancel = document.getElementById('btnTimerCancel');
+            start.textContent = active ? 'Restart' : 'Start';
+            toggle.textContent = running ? 'Pause' : 'Resume';
+            toggle.disabled = !active;
+            cancel.disabled = !active;
+            // Reflect a running timer's duration into the input when idle-editing isn't happening.
+            if (active && document.activeElement !== document.getElementById('timerDuration')) {
+                document.getElementById('timerDuration').value = Math.round(t.duration / 60);
+            }
+        }
+        function pollTimer() {
+            return get('/timer/state').then(renderTimer).then(() => setConn(true)).catch(() => setConn(false));
+        }
+        function pollState() {
+            return get('/state').then(applyState).then(() => setConn(true)).catch(() => setConn(false));
         }
 
-        function updateTimerState() {
-            fetch('/timer/state')
-                .then(response => response.json())
-                .then(state => {
-                    document.getElementById('timerStateDisplay').textContent = state.state;
-                    document.getElementById('timerRemaining').textContent = state.remaining;
-                    document.getElementById('timerDurationDisplay').textContent = state.duration;
-                })
-                .catch(error => console.error('Error fetching timer state:', error));
-        }
-
-        // Initial state update
-        updateState();
-        updateTimerState();
-        // Update state every 5 seconds
-        setInterval(updateState, 5000);
-        setInterval(updateTimerState, 1000);
+        // ---- Boot ----
+        buildSwatches();
+        pollState();
+        pollTimer();
+        setInterval(pollState, 4000);
+        setInterval(pollTimer, 1000);
     </script>
 </body>
 
