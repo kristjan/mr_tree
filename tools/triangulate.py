@@ -365,12 +365,25 @@ def cmd_build(args):
     u0 = float(np.median(u0s)) if u0s else 0.0
 
     xs, ys, zs, solved = [0.0] * args.leds, [0.0] * args.leds, [0.0] * args.leds, [False] * args.leds
+    cleaned = 0
     for i, ms in meas.items():
-        if len(ms) >= 2:
-            P, Q, _ = solve_xy([(t, u) for (t, u, _) in ms], u0=u0)
-            xs[i], ys[i] = P, Q
-            zs[i] = float(np.mean([v for (_, _, v) in ms]))
-            solved[i] = True
+        if len(ms) < 2:
+            continue
+        use = ms
+        # with >=3 views, drop the one whose u disagrees badly (a glint that won
+        # the brightest-blob in that angle) and re-solve from the rest.
+        if len(use) >= 3:
+            P, Q, _ = solve_xy([(t, u) for (t, u, _) in use], u0=u0)
+            resid = [abs(u - (u0 + P * math.cos(t) + Q * math.sin(t))) for (t, u, _) in use]
+            w = int(np.argmax(resid))
+            if resid[w] > args.outlier_px:
+                use = [m for j, m in enumerate(use) if j != w]
+                cleaned += 1
+        P, Q, _ = solve_xy([(t, u) for (t, u, _) in use], u0=u0)
+        xs[i], ys[i] = P, Q
+        zs[i] = float(np.mean([v for (_, _, v) in use]))
+        solved[i] = True
+    print(f"outlier-rejected a view on {cleaned} LEDs")
 
     n_solved = sum(solved)
     print(f"solved {n_solved}/{args.leds} LEDs (>=2 views)")
@@ -423,6 +436,8 @@ def main():
                        help="singles: near-clipping pixel level counted as lit (per /8 frame)")
         p.add_argument("--marker-count", type=int, default=1000,
                        help="singles: bright-pixel count above which a frame is an all-on marker")
+        p.add_argument("--outlier-px", type=int, default=150,
+                       help="build: drop a view whose reprojection error exceeds this (glint rejection)")
         p.add_argument("--leds", type=int, default=100)
 
     d = sub.add_parser("diagnose")
