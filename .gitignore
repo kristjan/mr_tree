@@ -1,4 +1,5 @@
 settings.toml
 reference/
+scratch/
 __pycache__/
 *.pyc
