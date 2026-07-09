@@ -1,19 +1,19 @@
 #!/bin/bash
 
 # Usage:
-#   ./deploy.sh            # watch tree/ and sync changed files continuously (default)
-#   ./deploy.sh --watch    # same as above
-#   ./deploy.sh --once      # sync all of tree/ to the board once, then exit
+#   ./deploy.sh            # sync all of tree/ to the board once, then exit (default)
+#   ./deploy.sh --once      # same as above
+#   ./deploy.sh --watch    # watch tree/ and sync changed files continuously
 
 CIRCUITPY="/Volumes/CIRCUITPY/"
 TREE_SRC="tree/"
 EXCLUDES="--exclude='settings.toml' --exclude='boot_out.txt' --exclude='.Trashes' --exclude='.fseventsd' --exclude='.Spotlight*' --exclude='.DS_Store' --exclude='__pycache__' --exclude='*.pyc'"
 RSYNC_BASE="rsync --inplace --no-times --no-perms --chmod=ugo=rwX --out-format='[%i] %n'"
 
-MODE="watch"
+MODE="once"
 case "$1" in
-    --once|once) MODE="once" ;;
-    --watch|watch|"") MODE="watch" ;;
+    --once|once|"") MODE="once" ;;
+    --watch|watch) MODE="watch" ;;
     *) echo "Usage: $0 [--once|--watch]" >&2; exit 2 ;;
 esac
 
