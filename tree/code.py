@@ -620,7 +620,8 @@ def inspect_off(request: Request):
 # dark gap. Offline, blobs are located and their on/off pattern across frames
 # decodes each blob's LED index; multiple angles triangulate to 3D coordinates.
 _capture_pending = False
-_capture_dur = 1.2   # seconds each bit-frame is held
+_capture_dur = 1.2      # seconds each bit-frame is held
+_capture_bright = 0.08  # LED brightness during capture (low, to avoid bloom)
 
 def _capture_bits():
     bits = 1
@@ -628,26 +629,31 @@ def _capture_bits():
         bits += 1
     return bits
 
-def _begin_capture(request, dur):
-    global _capture_pending, _capture_dur
+def _begin_capture(request, dur, bright):
+    global _capture_pending, _capture_dur, _capture_bright
     _capture_dur = dur
+    _capture_bright = bright
     _capture_pending = True
     bits = _capture_bits()
     gap, marker = 0.4, 1.0
     total = 0.6 + marker + bits * (gap + dur) + gap + marker + 0.4
     return Response(request, json.dumps({
-        "leds": len(tree.string), "bits": bits, "frame_dur": dur,
+        "leds": len(tree.string), "bits": bits, "frame_dur": dur, "brightness": bright,
         "gap_dur": gap, "marker_dur": marker, "estimated_seconds": round(total, 1),
         "note": "Record now: two all-on markers bracket the bit-frames.",
     }), content_type="application/json")
 
 @server.route("/capture/start")
 def capture_start(request: Request):
-    return _begin_capture(request, _capture_dur)
+    return _begin_capture(request, _capture_dur, _capture_bright)
 
 @server.route("/capture/start/<dur>")
 def capture_start_dur(request: Request, dur: str):
-    return _begin_capture(request, float(dur))
+    return _begin_capture(request, float(dur), _capture_bright)
+
+@server.route("/capture/start/<dur>/<bright>")
+def capture_start_dur_bright(request: Request, dur: str, bright: str):
+    return _begin_capture(request, float(dur), float(bright))
 
 def hex_to_rgb(hex):
     return tuple(int(hex[i:i+2], 16) for i in (0, 2, 4))
@@ -708,8 +714,8 @@ async def run_capture(dur):
     gap, marker = 0.4, 1.0
     prev_brightness = tree.string.brightness
     tree.pause()
-    tree.string.brightness = 0.25
-    print(f"Capture: {bits} bit-frames over ~{n} LEDs, {dur}s each")
+    tree.string.brightness = _capture_bright
+    print(f"Capture: {bits} bit-frames over ~{n} LEDs, {dur}s each, brightness {_capture_bright}")
 
     def fill(color):
         tree.string.fill(color)
