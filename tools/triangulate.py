@@ -187,60 +187,102 @@ def brightest_blob(d, thresh, min_area, max_area):
     return best
 
 
-def decode_view_singles(path, args):
-    """Decode a one-LED-at-a-time video: {index: (u, v)} + stats.
+def count_signal(path, crop, bright, scale=8):
+    """Per-frame count of bright (>bright) pixels above the crop line.
 
-    The sequence is: all-on marker, LEDs 10k..10k+9 lit one at a time, repeat.
-    Markers (many bright pixels) delimit decades; each single-LED run in a decade
-    is assigned the next index, so a miscount is confined to one decade of 10.
+    Single LEDs barely move mean brightness, but they add a clear cluster of
+    near-clipping pixels; dark gaps go to ~zero once the dial LEDs / table below
+    the tree are cropped away. This is what makes single-LED frames separable.
     """
-    b, fps, size = brightness_signal(path)
-    runs = find_runs(b, min_len=3)
-    dark_i = int(np.argmin(b))
-    frames = grab(path, [dark_i] + [(a + c) // 2 for (a, c) in runs])
-    dark = frames[dark_i]
-    H = dark.shape[0]
-    crop_y = int(args.crop * H)
+    cap = cv2.VideoCapture(path)
+    w = int(cap.get(cv2.CAP_PROP_FRAME_WIDTH))
+    h = int(cap.get(cv2.CAP_PROP_FRAME_HEIGHT))
+    fps = cap.get(cv2.CAP_PROP_FPS) or 30.0
+    sig = []
+    while True:
+        ok, f = cap.read()
+        if not ok:
+            break
+        s = cv2.resize(f, (max(1, w // scale), max(1, h // scale)))
+        g = cv2.cvtColor(s, cv2.COLOR_BGR2GRAY)
+        g[int(crop * g.shape[0]):, :] = 0
+        sig.append(int((g > bright).sum()))
+    cap.release()
+    return np.array(sig), fps, (w, h)
 
-    result, dupes = {}, 0
-    decade, within, counts = -1, 0, []
-    for (a, c) in runs:
-        d = np.clip(frames[(a + c) // 2] - dark, 0, 255).astype(np.uint8)
-        d[crop_y:, :] = 0
-        on = int((d > args.thresh).sum())
-        if on > args.marker_pixels:            # all-on re-sync marker
-            if decade >= 0:
-                counts.append(within)
-            decade += 1
-            within = 0
+
+def decode_view_singles(path, args):
+    """Decode a one-LED-at-a-time video via marker-anchored timing: {index:(u,v)}.
+
+    All-on markers bracket each decade of 10 single-LED frames. We locate the
+    markers, then sample the 10 evenly-spaced LED slots between consecutive
+    markers. An LED occluded at this angle yields no blob for its slot but does
+    not shift the others, so per-view coverage can be partial and still correct.
+    """
+    sig, fps, size = count_signal(path, args.crop, args.bright)
+
+    # bright runs whose peak clears the marker threshold = all-on markers
+    markers = []
+    i = 0
+    while i < len(sig):
+        if sig[i] > 0:
+            j = i
+            while j < len(sig) and sig[j] > 0:
+                j += 1
+            # real markers are brief (~0.6s); reject the long bright run of the
+            # normal display resuming after the sequence ends.
+            if 2 <= (j - i) < 1.5 * fps and int(sig[i:j].max()) > args.marker_count:
+                markers.append([i, j])
+            i = j
+        else:
+            i += 1
+    # merge markers split by a momentary dip
+    merged = []
+    for m in markers:
+        if merged and m[0] - merged[-1][1] < int(0.3 * fps):
+            merged[-1][1] = m[1]
+        else:
+            merged.append(m)
+    markers = merged
+
+    # sample the 10 LED slots between each consecutive marker pair (cap to the
+    # real decade count so any stray trailing marker can't add phantom slots)
+    samples = []  # (led_index, frame_index)
+    max_intervals = (args.leds + 9) // 10
+    for d in range(min(len(markers) - 1, max_intervals)):
+        a, b = markers[d][1], markers[d + 1][0]
+        for j in range(10):
+            samples.append((d * 10 + j, int(a + (b - a) * (j + 0.5) / 10)))
+
+    dark_i = int(np.argmin(sig))
+    frames = grab(path, [dark_i] + [f for _, f in samples])
+    dark = frames[dark_i]
+    crop_y = int(args.crop * dark.shape[0])
+
+    result = {}
+    for idx, fi in samples:
+        if not (0 <= idx < args.leds):
             continue
-        if decade < 0:
-            continue                            # LED runs before first marker (none expected)
-        idx = decade * 10 + within
-        within += 1
+        d = np.clip(frames[fi] - dark, 0, 255).astype(np.uint8)
+        d[crop_y:, :] = 0
         pt = brightest_blob(d, args.thresh, args.min_area, args.max_area)
-        if pt is not None and 0 <= idx < args.leds:
-            if idx in result:
-                dupes += 1
+        if pt is not None:
             result[idx] = pt
-    if decade >= 0:
-        counts.append(within)
-    return result, {"decades": decade + 1, "decade_counts": counts, "dupes": dupes}
+    return result, {"markers": len(markers), "intervals": max(0, len(markers) - 1),
+                    "recovered": len(result)}
 
 
 def cmd_diagnose(args):
     if args.singles:
         result, stats = decode_view_singles(args.video, args)
         print(f"{args.video}: singles mode")
-        print(f"  decades: {stats['decades']}  per-decade LED runs: {stats['decade_counts']} (want ten 10s)")
-        print(f"  dupes: {stats['dupes']}")
+        print(f"  markers found: {stats['markers']} (want 11)  ->  {stats['intervals']} decades")
         got = sorted(result)
         missing = [i for i in range(args.leds) if i not in result]
-        print(f"  recovered {len(got)}/{args.leds}; missing {len(missing)}: {missing[:20]}")
-        bad = [n for n in stats['decade_counts'] if n != 10]
-        if bad:
-            print(f"  ** decade(s) not 10 runs: {stats['decade_counts']} — a dim LED was missed "
-                  "(raise brightness) or two merged. Only that decade is affected.")
+        print(f"  recovered {len(got)}/{args.leds} at this angle; missing {len(missing)}: {missing[:20]}")
+        if stats['markers'] != 11:
+            print(f"  ** expected 11 markers (10 decades of 10 + end); got {stats['markers']}. "
+                  "Adjust --marker-count or --crop, or a marker split/merged.")
         return
     bits = nbits(args.leds)
     seg = segment(args.video, bits)
@@ -282,17 +324,37 @@ def cmd_build(args):
     if len(angles) != len(videos):
         sys.exit("angle count must match video count")
 
-    # index -> list of (angle_rad, u, v)
-    meas = {i: [] for i in range(args.leds)}
+    # decode every view
+    views = []  # (angle_rad, {index: (u, v)})
     for path, ang in zip(videos, angles):
         if args.singles:
-            result, stats = decode_view_singles(path, args)
+            result, _ = decode_view_singles(path, args)
         else:
-            result, stats = decode_view(segment(path, bits), args)
-        th = math.radians(ang)
-        for i, (u, v) in result.items():
-            meas[i].append((th, u, v))
-        print(f"{path}: angle {ang:.0f}  recovered {len(result)}/{args.leds}  dupes {stats['dupes']}")
+            result, _ = decode_view(segment(path, bits), args)
+        views.append((math.radians(ang), result))
+        print(f"{path}: angle {ang:.0f}  recovered {len(result)}/{args.leds}")
+
+    # Vertical alignment: the (slightly off-centre) tree translates up/down in the
+    # frame as it spins, but a given LED's true height is rotation-invariant. Solve
+    # a per-view v-offset so the same LEDs line up in height across views.
+    offsets = [0.0] * len(views)
+    for _ in range(6):
+        acc, cnt = {}, {}
+        for vi, (_, res) in enumerate(views):
+            for i, (_, v) in res.items():
+                acc[i] = acc.get(i, 0.0) + (v - offsets[vi])
+                cnt[i] = cnt.get(i, 0) + 1
+        led_mean = {i: acc[i] / cnt[i] for i in acc}
+        new = [float(np.median([v - led_mean[i] for i, (_, v) in res.items()]))
+               for (_, res) in views]
+        m = float(np.mean(new))
+        offsets = [o - m for o in new]
+
+    # index -> list of (angle_rad, u, aligned_v)
+    meas = {i: [] for i in range(args.leds)}
+    for vi, (th, res) in enumerate(views):
+        for i, (u, v) in res.items():
+            meas[i].append((th, u, v - offsets[vi]))
 
     # global rotation-axis column from well-observed LEDs (>=3 views)
     u0s = []
@@ -357,8 +419,10 @@ def main():
                        help="ignore image below this fraction of height (drops turntable reflection)")
         p.add_argument("--singles", action="store_true",
                        help="decode a one-LED-at-a-time capture (/capture/singles) instead of binary")
-        p.add_argument("--marker-pixels", type=int, default=4000,
-                       help="singles: min lit-pixel count for a frame to count as an all-on marker")
+        p.add_argument("--bright", type=int, default=235,
+                       help="singles: near-clipping pixel level counted as lit (per /8 frame)")
+        p.add_argument("--marker-count", type=int, default=1000,
+                       help="singles: bright-pixel count above which a frame is an all-on marker")
         p.add_argument("--leds", type=int, default=100)
 
     d = sub.add_parser("diagnose")
