@@ -1,5 +1,6 @@
 settings.toml
 reference/
 scratch/
+firmware/
 __pycache__/
 *.pyc

@@ -9,3 +9,10 @@ adafruit_led_animation
 
 # Board support
 neopixel
+
+# Dials (Adafruit seesaw rotary encoders over I2C)
+adafruit_seesaw
+
+# CircuitPython builtins pulled from the bundle (imported at top of code.py/tree.py)
+asyncio
+colorsys
