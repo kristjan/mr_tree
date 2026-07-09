@@ -29,6 +29,7 @@ TIMER_SETUP_COLOR = (0, 0, 60)  # cool blue = "armed, not running"
 
 RGB_STEP = 16      # base per-detent step for color channels
 BRIGHT_STEP = 12   # base per-detent step for brightness
+MIN_BRIGHTNESS = 12  # dial floor: press-turning right never fully darkens the tree
 PUBLISH_INTERVAL = 0.2  # min seconds between dial-driven MQTT state publishes
 LIMIT_BLINK_HZ = 8      # dial LED blink rate when pushing a channel past its limit
 LED_FADE_S = 0.6        # dial LED fade in/out when the tree powers on/off
@@ -290,9 +291,13 @@ class Controller:
         self._request_publish()
 
     def _adjust_brightness(self, delta):
-        self.brightness = _clamp(self.brightness + _accel(delta, BRIGHT_STEP), 0, 255)
+        old = self.brightness
+        self.brightness = _clamp(self.brightness + _accel(delta, BRIGHT_STEP), MIN_BRIGHTNESS, 255)
         # Snap per-detent so the dial stays responsive (fades are for HA/MQTT).
         self.tree.set_brightness(self.brightness, duration=0)
+        # Blink the dial LED if the user keeps turning down past the floor.
+        if self.brightness == old and delta < 0 and old <= MIN_BRIGHTNESS:
+            self._blink_until[RIGHT] = time.monotonic() + 0.3
         self._request_publish()
 
     # ---- animation ----------------------------------------------------
