@@ -21,7 +21,7 @@ TIMER = "timer"
 ANIMATIONS = ["hue_shift", "rainbow_cycle", "cherry_blossom", "pinwheel"]
 ANIM_LED = {"hue_shift": (40, 30, 0), "rainbow_cycle": (40, 0, 40), "cherry_blossom": (60, 20, 40), "pinwheel": (0, 40, 40)}
 
-HUE_MAX_BANDS = 12   # cap for the hue_shift "number of colors" dial
+HUE_MAX_BANDS = 5    # cap for the hue_shift "number of colors" dial
 
 MAX_MINUTES = 100
 TIMER_AUTOSTART_S = 30
@@ -417,7 +417,22 @@ class Controller:
             self.brightness = params["brightness"]
         if "speed" in params:
             self.speed = float(params["speed"]) / 100.0
+        if "param" in params:
+            self._sync_param(float(params["param"]) / 100.0)
         self._update_leds()
+
+    def _sync_param(self, value):
+        """Fold an HA/UI secondary-parameter change (0..1) into the dial's stored
+        value for the current animation, so a later dial turn doesn't snap it back."""
+        name = ANIMATIONS[self.anim_index]
+        if name == "hue_shift":
+            self.hue_bands = _clamp(1 + round(value * (HUE_MAX_BANDS - 1)), 1, HUE_MAX_BANDS)
+        elif name == "rainbow_cycle":
+            self.rainbow_bandwidth = _clampf(0.1 + value * 1.9, 0.1, 2.0)
+        elif name == "cherry_blossom":
+            self.pink_fraction = _clampf(0.1 + value * 0.8, 0.1, 0.9)
+        elif name == "pinwheel":
+            self.pinwheel_repeats = _clamp(1 + round(value * 3), 1, 4)
 
     # ---- LED feedback -------------------------------------------------
 

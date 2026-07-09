@@ -5,7 +5,7 @@ from colorsys import hsv_to_rgb
 from util.tree_animation import TreeAnimation
 from util.dither import put_dithered
 
-MAX_BANDS = 12
+MAX_BANDS = 5
 _GOLDEN = 0.6180339887498949  # low-discrepancy per-pixel dither offset
 
 

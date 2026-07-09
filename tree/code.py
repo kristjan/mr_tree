@@ -321,6 +321,10 @@ def handle_state_change(state_params):
             # Expect speed as 0-100
             tree.set_speed(float(state_params["speed"]) / 100)
 
+        if "param" in state_params:
+            # Secondary per-effect parameter, 0-100 (mapped per effect in Tree)
+            tree.set_param(float(state_params["param"]) / 100)
+
         if "animation_state" in state_params:
             if state_params["animation_state"] == "paused":
                 tree.pause()
@@ -341,6 +345,10 @@ def start_timer(duration=300):
         publish_state()  # Notify subscribers of the implicit ON
     tree.set_animation("timer", {"duration": duration})
     tree.animation.start()
+    # Put the dial controller into timer mode too, so pressing the dial pauses/edits
+    # this timer instead of doing nothing (the dial only acts on the timer in TIMER
+    # mode). Mirrors the coherence handle_state_change gets from sync_from_ha.
+    controller.sync_from_ha({"effect": "timer"})
 
 def handle_timer_message(message):
     """Handle timer control messages.

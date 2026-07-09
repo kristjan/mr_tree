@@ -348,9 +348,10 @@ class Tree:
     """
     if self.animation:
       if isinstance(self.animation, RainbowCycle):
-        # For RainbowCycle, adjust the frequency parameter
-        # Map 0-1 to frequency range 0.1-2.0
-        self.animation.frequency = 0.1 + (speed * 1.9)
+        # Map speed 0-1 to a frequency range, but cap the top: past ~0.6 the scroll
+        # looks chaotic, so clamp 8 dial clicks (8 x 0.05 = 0.4) below max speed.
+        s = 0.6 if speed > 0.6 else speed
+        self.animation.frequency = 0.1 + (s * 1.9)
       elif isinstance(self.animation, Sweep):
         # For Sweep, adjust both step and lag parameters
         # Map 0-1 to step range 1-10
@@ -371,6 +372,39 @@ class Tree:
 
       # Keep update speed constant and fast for smooth animation
       self.animation.speed = 0.01
+
+  def set_param(self, value: float):
+    """Set the current animation's secondary parameter from a normalized 0..1 value.
+
+    Each effect maps it to its own second control — the same knob the dial's RIGHT
+    encoder drives (see Controller._adjust_param): hue_shift color count, rainbow
+    color spread, cherry blossom mix, pinwheel arm count. Effects without a second
+    parameter ignore it.
+    """
+    if not self.animation:
+      return
+    value = 0.0 if value < 0 else 1.0 if value > 1 else value
+    if isinstance(self.animation, HueShift):
+      self.animation.set_bands(1 + int(round(value * 4)))    # 1..5 colors
+    elif isinstance(self.animation, RainbowCycle):
+      self.animation.bandwidth = 0.1 + value * 1.9           # 0.1..2.0 cycles/height
+    elif isinstance(self.animation, CherryBlossom):
+      self.animation.pink_fraction = 0.1 + value * 0.8       # 0.1..0.9 of branches
+    elif isinstance(self.animation, Pinwheel):
+      self.animation.repeats = 1 + int(round(value * 3))     # 1..4 arms
+
+  def _param_value(self):
+    """The current secondary parameter normalized to 0..1 (0.5 if the effect has none)."""
+    a = self.animation
+    if isinstance(a, HueShift):
+      return (a._bands - 1) / 4
+    elif isinstance(a, RainbowCycle):
+      return (a.bandwidth - 0.1) / 1.9
+    elif isinstance(a, CherryBlossom):
+      return (a.pink_fraction - 0.1) / 0.8
+    elif isinstance(a, Pinwheel):
+      return (a.repeats - 1) / 3
+    return 0.5
 
   def load_effect(self, effect_name: str, params=None):
       params = params or {}
@@ -508,6 +542,7 @@ class Tree:
       "color_mode": "rgb",
       "effect": self.animation.name if self.animation else None,
       "speed": int(self.animation.speed * 100) if self.animation else 50,
+      "param": int(round(self._param_value() * 100)) if self.animation else 50,
       "available_effects": self.EFFECTS,
       "animation_state": "paused" if self.animation and self.animation.frozen else "running"
     }
