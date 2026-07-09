@@ -4,7 +4,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## What this is
 
-"Mr Tree" — an LED Christmas tree driven by a CircuitPython microcontroller (Adafruit board, VID `0x239A` / PID `0x811C`, CircuitPython 9.2.1). A strand of 100 NeoPixels is addressed in 3D space via per-LED `(x, y, z)` coordinates so animations can sweep and fill along real geometric axes rather than strand index. The device exposes an HTTP control server, an mDNS name, and a full Home Assistant MQTT integration (auto-discovery + light/timer entities).
+"Mr Tree" — an LED Christmas tree driven by a CircuitPython microcontroller (Adafruit Feather ESP32-S3, 4MB Flash / 2MB PSRAM — board ID `adafruit_feather_esp32s3_4mbflash_2mbpsram`, VID `0x239A`, CircuitPython 9.2.1, per the board's `boot_out.txt`). A strand of 100 NeoPixels is addressed in 3D space via per-LED `(x, y, z)` coordinates so animations can sweep and fill along real geometric axes rather than strand index. The device exposes an HTTP control server, an mDNS name, and a full Home Assistant MQTT integration (auto-discovery + light/timer entities).
 
 All device code lives in [tree/](tree/) and runs *on the microcontroller* under CircuitPython — not CPython. The `venv/` at the repo root is a host-side toolchain (circup, pyserial, home-assistant tooling); it is not the runtime.
 
@@ -28,9 +28,9 @@ The whole app is one asyncio event loop (`asyncio.gather`) running these concurr
 - `handle_mqtt` — pumps the MQTT loop with reconnect + exponential backoff.
 - `handle_timer_updates` / `handle_availability_heartbeat` — publish timer state and `online` availability every 1s / 30s.
 - `handle_watchdog` — feeds a 10s hardware watchdog (`WatchDogMode.RESET`); if any task wedges, the board resets.
-- `handle_encoders` — currently a no-op stub (rotary-encoder handling is commented out).
+- `handle_encoders` — polls three Adafruit seesaw rotary dials over I2C (`0x36`/`0x37`/`0x38` = left/center/right) at ~33Hz and dispatches turn/press events to the dial controller ([tree/util/controller.py](tree/util/controller.py) + [tree/util/encoders.py](tree/util/encoders.py)): RGB / animation / timer modes, per-dial NeoPixel feedback, and power-fade coupling to the strand. Idle only if no dials are attached.
 
-All timing constants are interdependent: the MQTT `socket_timeout` (20ms), `mqtt_client.loop(timeout=0.02)`, and the 30fps animation sleep are tuned together so MQTT never blocks animation. Changing one can stutter the LEDs — see commit `74e5b3f`.
+The MQTT/render timing is interdependent: `socket_timeout` (5ms) bounds how long a `mqtt_client.loop()` poll can stall the single-threaded render loop, kept well under one fade frame (~16ms at 60fps) so packets read fine without stepping a fade. On top of that, `handle_mqtt` stands aside entirely (`tree.is_transitioning()`) for the ~1s a fade/sprout/drain renders, so a blocking socket read never steps a transition. Changing these can stutter the LEDs — see commit `74e5b3f`.
 
 ### Control surface — two front-ends, one core
 Both the HTTP routes and the MQTT message handlers funnel into **`handle_state_change(state_params)`** in [tree/code.py](tree/code.py). That function is the single choke point for state mutation (`state`, `brightness`, `color`, `effect`/`effect_params`, `speed`, `animation_state`); after applying, it always calls `publish_state()` to keep Home Assistant in sync. When adding a control, route it through `handle_state_change` rather than poking `tree` directly.
@@ -48,9 +48,12 @@ All effects subclass `TreeAnimation`, which extends the Adafruit `adafruit_led_a
 2. constructing it in `Tree.load_effect`,
 3. subclassing `TreeAnimation` and implementing `draw()` (spatial effects iterate `self._coordinates` and color by `x/y/z` position).
 
-Existing effects:
+Existing effects — `Tree.EFFECTS` (also HA's `effect_list`, in this order) is `hue_shift`, `rainbow_cycle`, `cherry_blossom`, `pinwheel`, `timer`. `sweep` also exists as an effect module and is instantiable via `load_effect`, but is **not** in `EFFECTS` (not advertised to HA, and filtered out of the web UI's effect grid).
+- **`HueShift`** — splits the tree into horizontal bands by normalized z-rank; each band melts in place to a new random hue on a staggered clock (no vertical motion). `bands` (1–12) is the per-effect param.
 - **`RainbowCycle`** — hue as a function of normalized z-height scrolling over time; speed = `frequency`.
-- **`Sweep`** — a lit band sweeps along X→Y→Z in turn, with lead/lag falloff; speed maps to `step` and `lag` window (see `Tree.set_speed`). Supports "peers" whose colors max-blend.
+- **`CherryBlossom`** — fixed-brown trunk (lowest LEDs by z) with warm-white branches, a `pink_fraction` subset twinkling white↔pink.
+- **`Pinwheel`** — hue by angle around the vertical axis through the x-y centroid, rotating over time; `repeats` = color cycles per revolution.
+- **`Sweep`** (unpublished) — a lit band sweeps along X→Y→Z in turn, with lead/lag falloff; speed maps to `step` and `lag` window (see `Tree.set_speed`). Supports "peers" whose colors max-blend.
 - **`Timer`** — fills the tree bottom-to-top, color lerping green→yellow→red as time runs out, with a downward pulse wave and per-LED fade-out, then a rainbow completion celebration. Timer state (`remaining`/`duration`/`state`) is its own MQTT sensor + Number + Start/Pause/Cancel buttons. Note: `Timer.draw()` deliberately does **not** publish MQTT (it would block the render loop); the `handle_timer_updates` task polls `get_state()` instead.
 
 ### Home Assistant / MQTT — [tree/util/mqtt.py](tree/util/mqtt.py) + `publish_discovery()` in code.py
