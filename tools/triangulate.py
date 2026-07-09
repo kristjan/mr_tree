@@ -245,29 +245,39 @@ def decode_view_singles(path, args):
             merged.append(m)
     markers = merged
 
-    # sample the 10 LED slots between each consecutive marker pair (cap to the
-    # real decade count so any stray trailing marker can't add phantom slots)
-    samples = []  # (led_index, frame_index)
+    # For each LED slot, sample several frames spanning the lit window and take the
+    # MEDIAN blob centroid — averages out per-frame jitter and the odd glint, which
+    # single-frame sampling left in and blurred the 3D (as locate.py did).
+    fracs = [0.28, 0.40, 0.50, 0.60, 0.72]
+    slot_frames = {}  # led -> [frame indices]
     max_intervals = (args.leds + 9) // 10
     for d in range(min(len(markers) - 1, max_intervals)):
         a, b = markers[d][1], markers[d + 1][0]
         for j in range(10):
-            samples.append((d * 10 + j, int(a + (b - a) * (j + 0.5) / 10)))
+            led = d * 10 + j
+            if 0 <= led < args.leds:
+                slot_frames[led] = [int(a + (b - a) * (j + f) / 10) for f in fracs]
 
     dark_i = int(np.argmin(sig))
-    frames = grab(path, [dark_i] + [f for _, f in samples])
+    want = [dark_i]
+    for fs in slot_frames.values():
+        want += fs
+    frames = grab(path, want)
     dark = frames[dark_i]
     crop_y = int(args.crop * dark.shape[0])
 
     result = {}
-    for idx, fi in samples:
-        if not (0 <= idx < args.leds):
-            continue
-        d = np.clip(frames[fi] - dark, 0, 255).astype(np.uint8)
-        d[crop_y:, :] = 0
-        pt = brightest_blob(d, args.thresh, args.min_area, args.max_area)
-        if pt is not None:
-            result[idx] = pt
+    for led, fs in slot_frames.items():
+        cents = []
+        for fi in fs:
+            d = np.clip(frames[fi] - dark, 0, 255).astype(np.uint8)
+            d[crop_y:, :] = 0
+            pt = brightest_blob(d, args.thresh, args.min_area, args.max_area)
+            if pt is not None:
+                cents.append(pt)
+        if cents:
+            arr = np.array(cents)
+            result[led] = (float(np.median(arr[:, 0])), float(np.median(arr[:, 1])))
     return result, {"markers": len(markers), "intervals": max(0, len(markers) - 1),
                     "recovered": len(result)}
 
@@ -324,69 +334,66 @@ def cmd_build(args):
     if len(angles) != len(videos):
         sys.exit("angle count must match video count")
 
-    # decode every view
-    views = []  # (angle_rad, {index: (u, v)})
-    for path, ang in zip(videos, angles):
+    # decode each view, dropping spurious detections left of the per-view column
+    # (reflections/glints; e.g. --umin 600,0,800,400)
+    umins = [int(x) for x in args.umin.split(",")] if args.umin else [0] * len(videos)
+    if len(umins) != len(videos):
+        sys.exit("umin count must match video count")
+    views = []  # (angle_deg, {index: (u, v)})
+    for path, ang, um in zip(videos, angles, umins):
         if args.singles:
             result, _ = decode_view_singles(path, args)
         else:
             result, _ = decode_view(segment(path, bits), args)
-        views.append((math.radians(ang), result))
+        result = {i: (u, v) for i, (u, v) in result.items() if u >= um}
+        views.append((ang, result))
         print(f"{path}: angle {ang:.0f}  recovered {len(result)}/{args.leds}")
 
     # Vertical alignment: the (slightly off-centre) tree translates up/down in the
-    # frame as it spins, but a given LED's true height is rotation-invariant. Solve
-    # a per-view v-offset so the same LEDs line up in height across views.
+    # frame as it spins, but a given LED's height is rotation-invariant. Solve a
+    # per-view v-offset so the same LEDs line up in height across views.
     offsets = [0.0] * len(views)
-    for _ in range(6):
+    for _ in range(8):
         acc, cnt = {}, {}
         for vi, (_, res) in enumerate(views):
             for i, (_, v) in res.items():
                 acc[i] = acc.get(i, 0.0) + (v - offsets[vi])
                 cnt[i] = cnt.get(i, 0) + 1
         led_mean = {i: acc[i] / cnt[i] for i in acc}
-        new = [float(np.median([v - led_mean[i] for i, (_, v) in res.items()]))
+        new = [float(np.median([v - led_mean[i] for i, (_, v) in res.items()]) if res else 0.0)
                for (_, res) in views]
         m = float(np.mean(new))
         offsets = [o - m for o in new]
 
-    # index -> list of (angle_rad, u, aligned_v)
-    meas = {i: [] for i in range(args.leds)}
-    for vi, (th, res) in enumerate(views):
-        for i, (u, v) in res.items():
-            meas[i].append((th, u, v - offsets[vi]))
+    # Direct combine (turntable): 0 & 180 both measure x (180 mirrored); 90 & 270
+    # both measure depth. A light occluded in one view is caught by its opposite,
+    # and the pair cross-checks. Rotation-axis column U0 = midpoint of each pair.
+    by = {round(a) % 360: res for (a, res) in views}
+    voff = {round(a) % 360: offsets[vi] for vi, (a, _) in enumerate(views)}
+    mids = []
+    for p, q in [(0, 180), (90, 270)]:
+        if p in by and q in by:
+            mids += [(by[p][i][0] + by[q][i][0]) / 2 for i in by[p] if i in by[q]]
+    U0 = float(np.median(mids)) if mids else \
+        float(np.median([u for _, res in views for (u, _) in res.values()]))
 
-    # global rotation-axis column from well-observed LEDs (>=3 views)
-    u0s = []
-    for i, ms in meas.items():
-        if len(ms) >= 3:
-            _, _, u0 = solve_xy([(t, u) for (t, u, _) in ms])
-            u0s.append(u0)
-    u0 = float(np.median(u0s)) if u0s else 0.0
-
-    xs, ys, zs, solved = [0.0] * args.leds, [0.0] * args.leds, [0.0] * args.leds, [False] * args.leds
-    cleaned = 0
-    for i, ms in meas.items():
-        if len(ms) < 2:
-            continue
-        use = ms
-        # with >=3 views, drop the one whose u disagrees badly (a glint that won
-        # the brightest-blob in that angle) and re-solve from the rest.
-        if len(use) >= 3:
-            P, Q, _ = solve_xy([(t, u) for (t, u, _) in use], u0=u0)
-            resid = [abs(u - (u0 + P * math.cos(t) + Q * math.sin(t))) for (t, u, _) in use]
-            w = int(np.argmax(resid))
-            if resid[w] > args.outlier_px:
-                use = [m for j, m in enumerate(use) if j != w]
-                cleaned += 1
-        P, Q, _ = solve_xy([(t, u) for (t, u, _) in use], u0=u0)
-        xs[i], ys[i] = P, Q
-        zs[i] = float(np.mean([v for (_, _, v) in use]))
-        solved[i] = True
-    print(f"outlier-rejected a view on {cleaned} LEDs")
-
-    n_solved = sum(solved)
-    print(f"solved {n_solved}/{args.leds} LEDs (>=2 views)")
+    AX = {0: ("x", 1.0), 180: ("x", -1.0), 90: ("y", 1.0), 270: ("y", -1.0)}
+    xs = [float("nan")] * args.leds
+    ys = [float("nan")] * args.leds
+    zs = [float("nan")] * args.leds
+    for i in range(args.leds):
+        xv, yv, zv = [], [], []
+        for key, (axis, sign) in AX.items():
+            if key in by and i in by[key]:
+                u, v = by[key][i]
+                (xv if axis == "x" else yv).append(sign * (u - U0))
+                zv.append(v - voff[key])
+        if xv and yv:
+            xs[i], ys[i], zs[i] = float(np.median(xv)), float(np.median(yv)), float(np.median(zv))
+        elif zv:
+            zs[i] = float(np.median(zv))
+    solved = [not math.isnan(xs[i]) for i in range(args.leds)]
+    print(f"solved {sum(solved)}/{args.leds} LEDs")
 
     # interpolate any unsolved LEDs from strand neighbours
     for i in range(args.leds):
@@ -448,6 +455,9 @@ def main():
     b = sub.add_parser("build")
     b.add_argument("videos", nargs="+")
     b.add_argument("--angles", default=None)
+    b.add_argument("--umin", default=None,
+                   help="comma list, one per video: drop decoded LEDs left of this image "
+                        "column (spurious reflections/glints), e.g. 600,0,800,400")
     b.add_argument("-o", "--out", default="tree/coordinates.csv")
     common(b)
     b.set_defaults(func=cmd_build)
