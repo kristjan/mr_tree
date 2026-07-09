@@ -139,8 +139,11 @@ def decode_view(seg, args):
     dark = frames[seg["dark"]]
     dets = []
     per_bit = []
+    H = dark.shape[0]
+    crop_y = int(args.crop * H)
     for k, fi in enumerate(seg["bits"]):
         d = np.clip(frames[fi] - dark, 0, 255)
+        d[crop_y:, :] = 0  # drop turntable reflection / base below crop line
         pts = blobs(d, args.thresh, args.min_area, args.max_area)
         per_bit.append(len(pts))
         for (x, y) in pts:
@@ -172,7 +175,73 @@ def decode_view(seg, args):
     return result, {"clusters": len(clusters), "dupes": dupes, "per_bit": per_bit}
 
 
+def brightest_blob(d, thresh, min_area, max_area):
+    """Centroid of the largest connected component above threshold, or None."""
+    mask = cv2.morphologyEx((d > thresh).astype(np.uint8), cv2.MORPH_CLOSE, np.ones((3, 3), np.uint8))
+    n, _, stats, cent = cv2.connectedComponentsWithStats(mask, 8)
+    best, best_area = None, 0
+    for k in range(1, n):
+        a = stats[k, cv2.CC_STAT_AREA]
+        if min_area <= a <= max_area and a > best_area:
+            best_area, best = a, (float(cent[k][0]), float(cent[k][1]))
+    return best
+
+
+def decode_view_singles(path, args):
+    """Decode a one-LED-at-a-time video: {index: (u, v)} + stats.
+
+    The sequence is: all-on marker, LEDs 10k..10k+9 lit one at a time, repeat.
+    Markers (many bright pixels) delimit decades; each single-LED run in a decade
+    is assigned the next index, so a miscount is confined to one decade of 10.
+    """
+    b, fps, size = brightness_signal(path)
+    runs = find_runs(b, min_len=3)
+    dark_i = int(np.argmin(b))
+    frames = grab(path, [dark_i] + [(a + c) // 2 for (a, c) in runs])
+    dark = frames[dark_i]
+    H = dark.shape[0]
+    crop_y = int(args.crop * H)
+
+    result, dupes = {}, 0
+    decade, within, counts = -1, 0, []
+    for (a, c) in runs:
+        d = np.clip(frames[(a + c) // 2] - dark, 0, 255).astype(np.uint8)
+        d[crop_y:, :] = 0
+        on = int((d > args.thresh).sum())
+        if on > args.marker_pixels:            # all-on re-sync marker
+            if decade >= 0:
+                counts.append(within)
+            decade += 1
+            within = 0
+            continue
+        if decade < 0:
+            continue                            # LED runs before first marker (none expected)
+        idx = decade * 10 + within
+        within += 1
+        pt = brightest_blob(d, args.thresh, args.min_area, args.max_area)
+        if pt is not None and 0 <= idx < args.leds:
+            if idx in result:
+                dupes += 1
+            result[idx] = pt
+    if decade >= 0:
+        counts.append(within)
+    return result, {"decades": decade + 1, "decade_counts": counts, "dupes": dupes}
+
+
 def cmd_diagnose(args):
+    if args.singles:
+        result, stats = decode_view_singles(args.video, args)
+        print(f"{args.video}: singles mode")
+        print(f"  decades: {stats['decades']}  per-decade LED runs: {stats['decade_counts']} (want ten 10s)")
+        print(f"  dupes: {stats['dupes']}")
+        got = sorted(result)
+        missing = [i for i in range(args.leds) if i not in result]
+        print(f"  recovered {len(got)}/{args.leds}; missing {len(missing)}: {missing[:20]}")
+        bad = [n for n in stats['decade_counts'] if n != 10]
+        if bad:
+            print(f"  ** decade(s) not 10 runs: {stats['decade_counts']} — a dim LED was missed "
+                  "(raise brightness) or two merged. Only that decade is affected.")
+        return
     bits = nbits(args.leds)
     seg = segment(args.video, bits)
     print(f"{args.video}: {seg['size'][0]}x{seg['size'][1]} @ {seg['fps']:.1f}fps")
@@ -216,8 +285,10 @@ def cmd_build(args):
     # index -> list of (angle_rad, u, v)
     meas = {i: [] for i in range(args.leds)}
     for path, ang in zip(videos, angles):
-        seg = segment(path, bits)
-        result, stats = decode_view(seg, args)
+        if args.singles:
+            result, stats = decode_view_singles(path, args)
+        else:
+            result, stats = decode_view(segment(path, bits), args)
         th = math.radians(ang)
         for i, (u, v) in result.items():
             meas[i].append((th, u, v))
@@ -282,6 +353,12 @@ def main():
         p.add_argument("--min-area", type=int, default=3)
         p.add_argument("--max-area", type=int, default=6000)
         p.add_argument("--cluster-r", type=int, default=20)
+        p.add_argument("--crop", type=float, default=1.0,
+                       help="ignore image below this fraction of height (drops turntable reflection)")
+        p.add_argument("--singles", action="store_true",
+                       help="decode a one-LED-at-a-time capture (/capture/singles) instead of binary")
+        p.add_argument("--marker-pixels", type=int, default=4000,
+                       help="singles: min lit-pixel count for a frame to count as an all-on marker")
         p.add_argument("--leds", type=int, default=100)
 
     d = sub.add_parser("diagnose")
