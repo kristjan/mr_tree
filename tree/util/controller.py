@@ -94,9 +94,10 @@ class Controller:
     # ---- lifecycle ----------------------------------------------------
 
     def start(self):
-        """Enter the default RGB mode at boot (no publish; MQTT may not be up yet)."""
-        self.mode = RGB
-        self.tree.set_color(tuple(self.rgb))
+        """Light the dial LEDs for the current mode at boot (no publish; MQTT may
+        not be up yet). Does not touch the strand — the boot sequence (startup
+        rainbow, then the remembered setting) owns it, and if a setting was restored
+        the controller's mode/values were already synced to it."""
         self._update_leds()
 
     # ---- input polling ------------------------------------------------

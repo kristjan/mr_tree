@@ -34,13 +34,21 @@ watchdog.timeout = 10.0  # 10 seconds
 print("Creating tree...")
 tree = Tree()
 print("Tree created!")
-tree.on()
 
 # Keep the microcontroller's onboard status LEDs dark, and dark whenever the tree
 # powers off, so nothing on the board glows alongside the strand.
 print("Blanking onboard board LEDs...")
 board_leds = BoardLeds()
 tree.add_power_listener(board_leds.set_power)
+
+# Boot sequence: play a startup rainbow, then fade to the remembered setting. The
+# "memory" is the retained MQTT command HA re-sends to mr_tree/set on reconnect
+# (the light is configured retain=true). Any state change that arrives during the
+# rainbow is captured here and applied once the rainbow finishes.
+BOOT_FILL_S = 2.0   # startup rainbow bottom-up fill time
+BOOT_HOLD_S = 1.0   # hold the full rainbow before restoring
+_booting = True
+_pending_restore = None
 
 print("Connecting to WiFi...")
 for attempt in range(10):
@@ -277,6 +285,14 @@ def handle_state_change(state_params):
     Returns:
         None
     """
+    global _pending_restore
+    if _booting:
+        # Hold changes (notably the retained MQTT restore) until the startup
+        # rainbow finishes; keep only the latest.
+        print(f"Boot: deferring state change until the rainbow finishes: {state_params}")
+        _pending_restore = state_params
+        return
+
     try:
         if "state" in state_params:
             if state_params["state"] == "ON":
@@ -743,11 +759,42 @@ async def handle_mqtt():
 
         await asyncio.sleep(0.01)  # Short sleep to allow animation task to run frequently
 
+async def handle_boot():
+    """Play the startup rainbow, then fade to the remembered setting.
+
+    The rainbow fill is kicked off in main() so its first rendered frame is the
+    reveal. Once it finishes and holds, apply whatever state was deferred while it
+    played (the retained MQTT command, or nothing on a fresh/offline boot).
+    """
+    global _booting, _pending_restore
+    while tree.is_transitioning():
+        await asyncio.sleep(0.05)
+    await asyncio.sleep(BOOT_HOLD_S)
+
+    restore = _pending_restore
+    _pending_restore = None
+    _booting = False
+
+    if restore is not None:
+        params = dict(restore)
+        # We're already on and showing the rainbow; drop a redundant ON so we
+        # crossfade to the remembered look instead of blanking and re-sprouting.
+        if params.get("state") == "ON":
+            del params["state"]
+        print(f"Boot: restoring remembered setting: {params}")
+        handle_state_change(params)
+    else:
+        print("Boot: no remembered setting received; leaving the startup rainbow")
+
 async def handle_encoders():
     """Poll the dials and dispatch turn/press interactions to the controller."""
     if not dials.any_present:
         print("No dials present; encoder task idle")
         return
+    # Let the boot sequence (startup rainbow + remembered setting) own the strand
+    # first, so we don't overwrite it with the dial's mode color.
+    while _booting:
+        await asyncio.sleep(0.1)
     controller.start()
     while True:
         try:
@@ -903,8 +950,15 @@ async def main():
 
     print("Creating server task")
     server_task = asyncio.create_task(handle_requests())
+    # Kick off the startup rainbow now (network setup is done, so its fill time
+    # isn't eaten by a blocking connect) so the animation task's first frame is the
+    # reveal rather than a stale sprout.
+    print("Starting boot rainbow")
+    tree.rainbow_fill(BOOT_FILL_S)
     print("Creating animation task")
     animation_task = asyncio.create_task(tree.animate())
+    print("Creating boot task")
+    boot_task = asyncio.create_task(handle_boot())
     print("Creating encoder task")
     encoder_task = asyncio.create_task(handle_encoders())
     print("Creating MQTT task")
@@ -919,7 +973,7 @@ async def main():
     watchdog_task = asyncio.create_task(handle_watchdog())
     print("Starting tasks")
     try:
-        await asyncio.gather(server_task, animation_task, encoder_task, mqtt_task, timer_task, heartbeat_task, capture_task, watchdog_task)
+        await asyncio.gather(server_task, animation_task, boot_task, encoder_task, mqtt_task, timer_task, heartbeat_task, capture_task, watchdog_task)
     except Exception as e:
         print(f"Critical error in main loop: {e}")
         # Feed watchdog one more time before potentially restarting

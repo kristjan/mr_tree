@@ -1,6 +1,7 @@
 import board
 import neopixel
 import asyncio
+from colorsys import hsv_to_rgb
 
 import adafruit_led_animation.color as color
 
@@ -124,6 +125,38 @@ class Tree:
       start_brightness=target, target_brightness=target, duration=dur,
       spread=SPREAD, delays=self._reveal_delays(reverse=False), owns_pixels=True,
       report_color=report, report_brightness=int(target / MAX_BRIGHTNESS * 255))
+
+  def rainbow_fill(self, duration=None):
+    """Sprout a static rainbow gradient from the bottom up.
+
+    The lowest LED is red and the hue climbs to purple at the top, fixed by height
+    — the colors don't move, the tree just fills in bottom-to-top like the normal
+    sprout. Used as the power-on boot effect before the remembered setting fades in.
+    """
+    self._is_on = True
+    if self.animation:
+      self.pause()
+    target = self._on_brightness
+    self._target_brightness = target
+    dur = SPROUT_S if duration is None else duration
+
+    # Target color per pixel: hue 0.0 (red) at the lowest LED climbing to 0.83
+    # (purple) at the top, ranked by height so the gradient is even across LEDs.
+    order = self._height_order()
+    n = len(order)
+    target_pixels = [(0, 0, 0)] * n
+    for rank, idx in enumerate(order):
+      hue = (rank / (n - 1) if n > 1 else 0.0) * 0.83
+      r, g, b = hsv_to_rgb(hue, 1.0, 1.0)
+      target_pixels[idx] = (int(r * 255), int(g * 255), int(b * 255))
+
+    self.string.fill((0, 0, 0))
+    self.string.brightness = target
+    self.string.show()
+    self._transition = Transition(
+      self.string, start_pixels=(0, 0, 0), target_pixels=target_pixels,
+      start_brightness=target, target_brightness=target, duration=dur,
+      spread=SPREAD, delays=self._reveal_delays(reverse=False), owns_pixels=True)
 
   def off(self, duration=None):
     """Turn the tree off, draining light out of the branches and down the trunk.
