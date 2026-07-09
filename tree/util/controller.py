@@ -81,6 +81,9 @@ class Controller:
         # Dial LEDs currently blinking a limit cue: pos -> blink-until time.
         self._blink_until = {}
 
+        # Dial LEDs follow the main strand: dark while the tree is off.
+        tree.add_power_listener(self._on_power)
+
     # ---- lifecycle ----------------------------------------------------
 
     def start(self):
@@ -219,12 +222,25 @@ class Controller:
             self.tree.on()
         self._publish_now()
 
+    def _on_power(self, on):
+        """Power listener: restore the per-mode dial LEDs on, blank them off."""
+        if on:
+            self._update_leds()
+        else:
+            self._blank_leds()
+
+    def _blank_leds(self):
+        self._blink_until = {}  # drop any limit-cue blink so it can't relight
+        for pos in range(len(self.dials.dials)):
+            self._set_led(pos, (0, 0, 0))
+
     # ---- RGB ----------------------------------------------------------
 
     def _adjust_channel(self, pos, delta):
         old = self.rgb[pos]
         self.rgb[pos] = _clamp(old + _accel(delta, RGB_STEP), 0, 255)
-        self.tree.set_color(tuple(self.rgb))
+        # Snap per-detent so the dial stays responsive (fades are for HA/MQTT).
+        self.tree.set_color(tuple(self.rgb), duration=0)
         self._update_leds()
         # Blink the dial LED if the user keeps pushing a channel past its limit.
         if self.rgb[pos] == old and ((delta > 0 and old >= 255) or (delta < 0 and old <= 0)):
@@ -233,7 +249,8 @@ class Controller:
 
     def _adjust_brightness(self, delta):
         self.brightness = _clamp(self.brightness + _accel(delta, BRIGHT_STEP), 0, 255)
-        self.tree.set_brightness(self.brightness)
+        # Snap per-detent so the dial stays responsive (fades are for HA/MQTT).
+        self.tree.set_brightness(self.brightness, duration=0)
         self._request_publish()
 
     # ---- animation ----------------------------------------------------
@@ -364,6 +381,10 @@ class Controller:
             dial.set_led(color)
 
     def _update_leds(self):
+        # While the tree is off, all dial LEDs stay dark regardless of mode.
+        if not self.tree.is_on():
+            self._blank_leds()
+            return
         if self.mode == RGB:
             self._set_led(LEFT, (self.rgb[0], 0, 0))
             self._set_led(CENTER, (0, self.rgb[1], 0))
