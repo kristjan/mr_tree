@@ -16,9 +16,12 @@ RGB = "rgb"
 ANIMATION = "animation"
 TIMER = "timer"
 
-# Animations selectable via the dial (the timer is its own mode).
-ANIMATIONS = ["rainbow_cycle", "cherry_blossom", "pinwheel"]
-ANIM_LED = {"rainbow_cycle": (40, 0, 40), "cherry_blossom": (60, 20, 40), "pinwheel": (0, 40, 40)}
+# Animations selectable via the dial (the timer is its own mode). hue_shift is
+# first so it's the one you land on entering animation mode.
+ANIMATIONS = ["hue_shift", "rainbow_cycle", "cherry_blossom", "pinwheel"]
+ANIM_LED = {"hue_shift": (40, 30, 0), "rainbow_cycle": (40, 0, 40), "cherry_blossom": (60, 20, 40), "pinwheel": (0, 40, 40)}
+
+HUE_MAX_BANDS = 12   # cap for the hue_shift "number of colors" dial
 
 MAX_MINUTES = 100
 TIMER_AUTOSTART_S = 30
@@ -69,6 +72,7 @@ class Controller:
         self.rainbow_bandwidth = 1.0
         self.pink_fraction = 0.4    # cherry_blossom: share of branch LEDs (0.1-0.9)
         self.pinwheel_repeats = 1   # pinwheel: color cycles around the circle (1-4)
+        self.hue_bands = 1          # hue_shift: number of color anchors (1 = single color)
 
         self.timer_minutes = 5
         self._timer_editing = False
@@ -312,6 +316,8 @@ class Controller:
             anim.pink_fraction = self.pink_fraction
         elif name == "pinwheel":
             anim.repeats = self.pinwheel_repeats
+        elif name == "hue_shift":
+            anim.set_bands(self.hue_bands)
 
     def _cycle_animation(self, delta):
         step = 1 if delta > 0 else -1
@@ -338,6 +344,8 @@ class Controller:
             self.pink_fraction = _clampf(self.pink_fraction + delta * 0.05, 0.1, 0.9)
         elif name == "pinwheel":
             self.pinwheel_repeats = _clamp(self.pinwheel_repeats + (1 if delta > 0 else -1), 1, 4)
+        elif name == "hue_shift":
+            self.hue_bands = _clamp(self.hue_bands + (1 if delta > 0 else -1), 1, HUE_MAX_BANDS)
         self._apply_anim_param()
         self._update_leds()
         self._request_publish()
@@ -434,6 +442,9 @@ class Controller:
                 right = (int(60 * f) + 6, int(20 * f), int(35 * f) + 4)
             elif name == "pinwheel":
                 right = (0, min(60, 15 * int(self.pinwheel_repeats)), 30)
+            elif name == "hue_shift":
+                b = min(60, 4 + self.hue_bands * 5)  # brighter = more bands
+                right = (b, 0, b)
             else:
                 b = min(60, int(self.rainbow_bandwidth * 12))
                 right = (b, b, 0)

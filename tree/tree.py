@@ -10,6 +10,7 @@ from effects.sweep import Sweep
 from effects.timer import Timer
 from effects.cherry_blossom import CherryBlossom
 from effects.pinwheel import Pinwheel
+from effects.hue_shift import HueShift
 from util.transition import Transition
 
 # Default transition durations (seconds). None passed to a setter uses these;
@@ -41,7 +42,7 @@ class Position:
   RIGHT = 2
 
 class Tree:
-  EFFECTS = ["rainbow_cycle", "cherry_blossom", "pinwheel", "timer"]
+  EFFECTS = ["hue_shift", "rainbow_cycle", "cherry_blossom", "pinwheel", "timer"]
 
   def __init__(self):
     self.string = neopixel.NeoPixel(board.A1, 100, brightness=0.2, auto_write=False, pixel_order=neopixel.RGB)
@@ -364,13 +365,18 @@ class Tree:
       elif isinstance(self.animation, Pinwheel):
         # Rotation rate.
         self.animation.rotation_speed = speed
+      elif isinstance(self.animation, HueShift):
+        # How fast the bands change color.
+        self.animation.shift_speed = speed
 
       # Keep update speed constant and fast for smooth animation
       self.animation.speed = 0.01
 
   def load_effect(self, effect_name: str, params=None):
       params = params or {}
-      if effect_name == 'rainbow_cycle':
+      if effect_name == 'hue_shift':
+          return HueShift(self.string, self.coordinates, speed=0.01, name='hue_shift', bands=1, shift_speed=0.5)
+      elif effect_name == 'rainbow_cycle':
           # Start with medium speed (frequency = 1.0)
           return RainbowCycle(self.string, self.coordinates, speed=0.01, frequency=1.0, name='rainbow_cycle')
       elif effect_name == "sweep":
