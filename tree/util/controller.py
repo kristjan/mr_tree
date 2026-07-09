@@ -28,6 +28,7 @@ RGB_STEP = 16      # base per-detent step for color channels
 BRIGHT_STEP = 12   # base per-detent step for brightness
 PUBLISH_INTERVAL = 0.2  # min seconds between dial-driven MQTT state publishes
 LIMIT_BLINK_HZ = 8      # dial LED blink rate when pushing a channel past its limit
+LED_FADE_S = 0.6        # dial LED fade in/out when the tree powers on/off
 
 
 def _clamp(value, lo, hi):
@@ -81,6 +82,12 @@ class Controller:
         # Dial LEDs currently blinking a limit cue: pos -> blink-until time.
         self._blink_until = {}
 
+        # Last color pushed to each dial LED, and an in-progress power fade
+        # (start/target colors ramped by poll()) so the LEDs ease in/out with the
+        # tree instead of hard-cutting.
+        self._led_current = [(0, 0, 0), (0, 0, 0), (0, 0, 0)]
+        self._led_fade = None
+
         # Dial LEDs follow the main strand: dark while the tree is off.
         tree.add_power_listener(self._on_power)
 
@@ -116,6 +123,7 @@ class Controller:
             print("Timer auto-start after 30s idle")
             self._start_timer()
 
+        self._tick_led_fade(now)
         self._tick_leds(now)
         self._flush_publish(now)
 
@@ -223,13 +231,42 @@ class Controller:
         self._publish_now()
 
     def _on_power(self, on):
-        """Power listener: restore the per-mode dial LEDs on, blank them off."""
-        if on:
-            self._update_leds()
-        else:
-            self._blank_leds()
+        """Power listener: ease the dial LEDs to the per-mode display on, to dark off."""
+        target = self._led_colors() if on else [(0, 0, 0), (0, 0, 0), (0, 0, 0)]
+        self._begin_led_fade(target, LED_FADE_S)
+
+    def _begin_led_fade(self, targets, duration):
+        self._led_fade = {
+            "start": list(self._led_current),
+            "target": list(targets),
+            "t0": time.monotonic(),
+            "dur": duration,
+        }
+        self._blink_until = {}  # a power fade owns the LEDs; drop any limit blink
+
+    def _tick_led_fade(self, now):
+        """Advance an in-progress power fade; called every poll()."""
+        fade = self._led_fade
+        if fade is None:
+            return
+        dur = fade["dur"]
+        p = (now - fade["t0"]) / dur if dur > 0 else 1.0
+        if p >= 1.0:
+            p = 1.0
+        e = p * p * (3.0 - 2.0 * p)
+        start, target = fade["start"], fade["target"]
+        for pos in range(3):
+            s, t = start[pos], target[pos]
+            self._set_led(pos, (
+                int(s[0] + (t[0] - s[0]) * e),
+                int(s[1] + (t[1] - s[1]) * e),
+                int(s[2] + (t[2] - s[2]) * e),
+            ))
+        if p >= 1.0:
+            self._led_fade = None
 
     def _blank_leds(self):
+        self._led_fade = None
         self._blink_until = {}  # drop any limit-cue blink so it can't relight
         for pos in range(len(self.dials.dials)):
             self._set_led(pos, (0, 0, 0))
@@ -379,34 +416,44 @@ class Controller:
         dial = self.dials.get(pos)
         if dial:
             dial.set_led(color)
+        if 0 <= pos < len(self._led_current):
+            self._led_current[pos] = color
+
+    def _led_colors(self):
+        """The intended per-mode dial LED colors as [left, center, right]."""
+        if self.mode == RGB:
+            return [(self.rgb[0], 0, 0), (0, self.rgb[1], 0), (0, 0, self.rgb[2])]
+        elif self.mode == ANIMATION:
+            name = ANIMATIONS[self.anim_index]
+            left = ANIM_LED.get(name, (30, 30, 30))
+            v = int(self.speed * 60)
+            center = (v, v, v)
+            if name == "cherry_blossom":
+                f = self.pink_fraction
+                right = (int(60 * f) + 6, int(20 * f), int(35 * f) + 4)
+            elif name == "pinwheel":
+                right = (0, min(60, 15 * int(self.pinwheel_repeats)), 30)
+            else:
+                b = min(60, int(self.rainbow_bandwidth * 12))
+                right = (b, b, 0)
+            return [left, center, right]
+        else:  # TIMER — left is the minutes dial while editing; right shows run/pause.
+            return [
+                (0, 60, 0) if self._timer_editing else (0, 0, 0),
+                (0, 0, 0),
+                (0, 60, 0) if self._timer_editing else (60, 40, 0),
+            ]
 
     def _update_leds(self):
         # While the tree is off, all dial LEDs stay dark regardless of mode.
         if not self.tree.is_on():
             self._blank_leds()
             return
-        if self.mode == RGB:
-            self._set_led(LEFT, (self.rgb[0], 0, 0))
-            self._set_led(CENTER, (0, self.rgb[1], 0))
-            self._set_led(RIGHT, (0, 0, self.rgb[2]))
-        elif self.mode == ANIMATION:
-            name = ANIMATIONS[self.anim_index]
-            self._set_led(LEFT, ANIM_LED.get(name, (30, 30, 30)))
-            v = int(self.speed * 60)
-            self._set_led(CENTER, (v, v, v))
-            if name == "cherry_blossom":
-                v = self.pink_fraction
-                self._set_led(RIGHT, (int(60 * v) + 6, int(20 * v), int(35 * v) + 4))
-            elif name == "pinwheel":
-                self._set_led(RIGHT, (0, min(60, 15 * int(self.pinwheel_repeats)), 30))
-            else:
-                b = min(60, int(self.rainbow_bandwidth * 12))
-                self._set_led(RIGHT, (b, b, 0))
-        elif self.mode == TIMER:
-            # Left is the minutes dial while editing; right shows run/pause state.
-            self._set_led(LEFT, (0, 60, 0) if self._timer_editing else (0, 0, 0))
-            self._set_led(CENTER, (0, 0, 0))
-            self._set_led(RIGHT, (0, 60, 0) if self._timer_editing else (60, 40, 0))
+        # A power fade owns the LEDs until it finishes; don't fight it.
+        if self._led_fade is not None:
+            return
+        for pos, color in enumerate(self._led_colors()):
+            self._set_led(pos, color)
 
     def _hue_to_rgb(self, hue):
         return tuple(int(c * 255) for c in hsv_to_rgb(hue, 1.0, 1.0))
