@@ -56,9 +56,14 @@ function draw(){
   const s=Math.min(w,h)*0.40*zoom/ext;
   const cxx=Math.cos(ax),sxx=Math.sin(ax),cyy=Math.cos(ay),syy=Math.sin(ay);
   const P=C.map((p,i)=>{
-    let x=p[0]*cyy - p[2]*syy, z=p[0]*syy + p[2]*cyy;
-    let y=p[1]*cxx - z*sxx,     d=p[1]*sxx + z*cxx;
-    return {x:w/2+x*s, y:h/2-y*s, d, i, hz:(p[1]/ext+1)/2};
+    // p = [x, depth, height]. Spin (azimuth) around the vertical HEIGHT axis,
+    // then tilt (elevation); screen-vertical is height (up).
+    let X = p[0]*cyy - p[1]*syy;   // horizontal after azimuth
+    let Yd= p[0]*syy + p[1]*cyy;   // depth after azimuth
+    let Z = p[2];                  // height (rotation axis)
+    let d = Yd*cxx - Z*sxx;        // depth after elevation (for sort/size)
+    let V = Yd*sxx + Z*cxx;        // vertical (height, tilted)
+    return {x:w/2+X*s, y:h/2-V*s, d, i, hz:(p[2]/ext+1)/2};
   });
   ctx.strokeStyle='rgba(255,255,255,0.10)'; ctx.lineWidth=DPR();
   ctx.beginPath(); for(let i=0;i<N;i++){const q=P[i]; i?ctx.lineTo(q.x,q.y):ctx.moveTo(q.x,q.y);} ctx.stroke();
