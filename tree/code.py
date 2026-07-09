@@ -655,6 +655,35 @@ def capture_start_dur(request: Request, dur: str):
 def capture_start_dur_bright(request: Request, dur: str, bright: str):
     return _begin_capture(request, float(dur), float(bright))
 
+# One-LED-at-a-time capture: lights each LED alone (nothing adjacent to merge
+# with), with an all-on re-sync marker every 10 LEDs so a miscount can't shift
+# the whole index mapping. The k-th single-LED frame is simply LED k.
+_singles_pending = False
+_singles_dur = 0.3      # seconds each LED is lit
+_singles_bright = 0.12  # brighter is fine — only one LED is on
+
+def _begin_singles(request, dur, bright):
+    global _singles_pending, _singles_dur, _singles_bright
+    _singles_dur = dur
+    _singles_bright = bright
+    _singles_pending = True
+    n = len(tree.string)
+    gap = 0.15
+    total = 0.6 + n * (dur + gap) + (n // 10 + 1) * 0.5 + 0.4
+    return Response(request, json.dumps({
+        "leds": n, "dur": dur, "gap": gap, "brightness": bright, "markers_every": 10,
+        "estimated_seconds": round(total, 1),
+        "note": "All-on markers every 10 LEDs; single-LED frames in between.",
+    }), content_type="application/json")
+
+@server.route("/capture/singles")
+def capture_singles(request: Request):
+    return _begin_singles(request, _singles_dur, _singles_bright)
+
+@server.route("/capture/singles/<dur>/<bright>")
+def capture_singles_db(request: Request, dur: str, bright: str):
+    return _begin_singles(request, float(dur), float(bright))
+
 def hex_to_rgb(hex):
     return tuple(int(hex[i:i+2], 16) for i in (0, 2, 4))
 
@@ -739,9 +768,41 @@ async def run_capture(dur):
     controller.set_mode(controller.mode)  # resume normal display
     print("Capture sequence complete")
 
+async def run_capture_singles(dur, gap, bright):
+    """Light each LED alone, with an all-on marker every 10 LEDs (non-blocking)."""
+    n = len(tree.string)
+    prev_brightness = tree.string.brightness
+    tree.pause()
+    tree.string.brightness = bright
+    print(f"Capture singles: {n} LEDs, {dur}s each, brightness {bright}")
+
+    def one(i):
+        tree.string.fill((0, 0, 0))
+        if i >= 0:
+            tree.string[i] = (255, 255, 255)
+        tree.string.show()
+
+    def allon():
+        tree.string.fill((255, 255, 255))
+        tree.string.show()
+
+    one(-1); await asyncio.sleep(0.6)
+    for i in range(n):
+        if i % 10 == 0:
+            allon(); await asyncio.sleep(0.5)   # decade re-sync marker
+            one(-1); await asyncio.sleep(gap)
+        one(i); await asyncio.sleep(dur)
+        one(-1); await asyncio.sleep(gap)
+    allon(); await asyncio.sleep(0.5)           # end marker
+    one(-1); await asyncio.sleep(0.4)
+
+    tree.string.brightness = prev_brightness
+    controller.set_mode(controller.mode)
+    print("Singles capture complete")
+
 async def handle_capture():
-    """Run a capture sequence when one is requested via /capture/start."""
-    global _capture_pending
+    """Run a capture sequence when one is requested via /capture/*."""
+    global _capture_pending, _singles_pending
     while True:
         if _capture_pending:
             _capture_pending = False
@@ -749,6 +810,12 @@ async def handle_capture():
                 await run_capture(_capture_dur)
             except Exception as e:
                 print(f"Capture error: {e}")
+        if _singles_pending:
+            _singles_pending = False
+            try:
+                await run_capture_singles(_singles_dur, 0.15, _singles_bright)
+            except Exception as e:
+                print(f"Singles capture error: {e}")
         await asyncio.sleep(0.1)
 
 async def handle_watchdog():
