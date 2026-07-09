@@ -1,152 +1,201 @@
 import time
+import math
 import random
 from colorsys import hsv_to_rgb
 
 from util.tree_animation import TreeAnimation
 from util.dither import put_dithered
 
-MAX_BANDS = 5
+MAX_MODES = 5
 _GOLDEN = 0.6180339887498949  # low-discrepancy per-pixel dither offset
+_FOLLOW_TAU = 0.35            # seconds for a segment to ease onto its group's color
 
 
 class HueShift(TreeAnimation):
-    """Fade the whole tree through colors.
+    """Fade the tree's structural segments through colors.
 
-    `bands` sets how many colors are on the tree at once. With 1 band the whole
-    tree is a single color that drifts through the hue wheel. With more, each band
-    is a color anchor at a fixed height and the tree shows a smooth vertical
-    gradient blended between the anchors — the colors fade into each other rather
-    than sitting in hard stripes. Each anchor's hue crossfades to a new hue on its
-    own staggered timer; the colors never travel up or down the tree.
+    The tree is partitioned into a trunk and four branches (see tree/segments.csv).
+    `mode` (1-5) picks how those segments are grouped, and each group carries one
+    color that slowly melts to a new random hue on its own staggered clock:
 
-    The next hue for an anchor is the current one plus a random signed offset
-    (never a tiny nudge, never more than a third of the wheel), so there's no
-    coherent direction and thus no illusion of motion. Output is dithered so the
-    slow fades don't band at low brightness.
+      1  the whole tree is one color
+      2  trunk one color, all four branches a second color
+      3  trunk one color, plus a color on each opposite branch pair (N+S, E+W)
+      4  trunk one color, one opposite pair shares a color, the other two branches
+         each get their own
+      5  trunk and each of the four branches get their own color
+
+    Colors never travel across the tree; each group melts in place. Every color
+    change is eased, and switching modes re-groups without snapping — each segment
+    keeps its current on-screen color and eases toward its new group's, so the
+    tree always transitions smoothly. Output is dithered so slow fades don't band
+    at low brightness.
 
     `shift_speed` (0-1) sets how fast the colors change.
     """
 
-    def __init__(self, pixel_object, coordinates, speed, name, bands=1, shift_speed=0.5):
+    def __init__(self, pixel_object, coordinates, segments, speed, name, mode=1, shift_speed=0.5):
         super().__init__(pixel_object=pixel_object, coordinates=coordinates, speed=speed, color=(255, 0, 0), name=name)
-        self.shift_speed = shift_speed  # 0-1, sampled when each anchor picks a new target
+        self.shift_speed = shift_speed  # 0-1, sampled when each group picks a new target
 
         n = len(self._coordinates)
-        # Normalized height (0 at the bottom, 1 at the top) per LED, by rank so the
-        # gradient is even across LEDs regardless of their vertical spacing.
-        order = sorted(range(n), key=lambda i: self._coordinates[i][2])
-        self._h = [0.0] * n
-        for rank, idx in enumerate(order):
-            self._h[idx] = rank / (n - 1) if n > 1 else 0.0
+        # Per-LED segment id: 0 = trunk, 1..4 = branches (parallel to coordinates).
+        self._seg = [int(segments[i]) if i < len(segments) else 0 for i in range(n)]
         self._dither = [(i * _GOLDEN) % 1.0 for i in range(n)]
 
-        self._bands = 0
-        self._set_bands(bands, seed=True)
+        # Order the branch segment ids by their angle around the trunk axis so we
+        # can talk about "opposite" pairs (index i and i+2) regardless of how the
+        # segmentation happened to number them.
+        self._branch_order = self._order_branches()
 
-    # ---- band setup ---------------------------------------------------
+        # Per-segment currently-shown hue (index by segment id 0..4). This is the
+        # continuity layer: it always eases toward its group's color, so nothing
+        # snaps when a group's hue changes or when the mode re-groups segments.
+        self._seg_disp = [0.0] * 5
+        self._last = time.monotonic()
 
-    def _assign_blend(self):
-        """For each LED, the two anchors bracketing its height and the blend between
-        them (anchor b sits at height (b+0.5)/bands)."""
-        n = len(self._h)
-        b = self._bands
-        self._lo = [0] * n
-        self._hi = [0] * n
-        self._t = [0.0] * n
-        last = b - 1
-        for i in range(n):
-            pos = self._h[i] * b - 0.5  # fractional anchor index at this height
-            if pos <= 0.0:
-                self._lo[i] = 0; self._hi[i] = 0; self._t[i] = 0.0
-            elif pos >= last:
-                self._lo[i] = last; self._hi[i] = last; self._t[i] = 0.0
-            else:
-                lo = int(pos)
-                self._lo[i] = lo; self._hi[i] = lo + 1; self._t[i] = pos - lo
+        self._mode = 0
+        self._set_mode(mode, seed=True)
+
+    # ---- geometry -----------------------------------------------------
+
+    def _order_branches(self):
+        """Branch segment ids sorted by angle around the trunk's x-y centroid."""
+        n = len(self._coordinates)
+        trunk = [i for i in range(n) if self._seg[i] == 0]
+        ref = trunk if trunk else list(range(n))
+        tx = sum(self._coordinates[i][0] for i in ref) / len(ref)
+        ty = sum(self._coordinates[i][1] for i in ref) / len(ref)
+
+        branches = sorted({self._seg[i] for i in range(n) if self._seg[i] > 0})
+        angle = {}
+        for b in branches:
+            members = [i for i in range(n) if self._seg[i] == b]
+            cx = sum(self._coordinates[i][0] for i in members) / len(members)
+            cy = sum(self._coordinates[i][1] for i in members) / len(members)
+            angle[b] = math.atan2(cy - ty, cx - tx)
+        return sorted(branches, key=lambda b: angle[b])
+
+    def _grouping_for(self, mode):
+        """Map each segment id (0..4) to a group index for the given mode.
+
+        Group indices are contiguous starting at 0; the number of groups equals
+        the number of colors the mode shows.
+        """
+        g = [0, 0, 0, 0, 0]  # by segment id; trunk (0) stays group 0 in every mode
+        o = self._branch_order
+
+        if mode == 1 or not o:
+            return [0, 0, 0, 0, 0]
+        if mode == 2 or len(o) < 4:
+            for b in o:
+                g[b] = 1
+            return g
+        if mode == 3:
+            g[o[0]] = g[o[2]] = 1   # one opposite pair
+            g[o[1]] = g[o[3]] = 2   # the other opposite pair
+        elif mode == 4:
+            g[o[0]] = g[o[2]] = 1   # shared opposite pair
+            g[o[1]] = 2             # solo branch
+            g[o[3]] = 3             # solo branch
+        else:  # mode == 5
+            g[o[0]] = 1; g[o[1]] = 2; g[o[2]] = 3; g[o[3]] = 4
+        return g
+
+    # ---- mode / group setup -------------------------------------------
 
     def _new_dur(self):
-        # shift_speed 0 -> ~9s per change, 1 -> ~1.5s, jittered so anchors desync.
+        # shift_speed 0 -> ~9s per change, 1 -> ~1.5s, jittered so groups desync.
         base = 9.0 - self.shift_speed * 7.5
         return base * random.uniform(0.7, 1.3)
 
     def _next_hue(self, hue):
         # Noticeable but bounded step (|offset| < 0.5 so the shortest path is the
-        # intended direction), random sign so anchors don't drift together.
+        # intended direction), random sign so groups don't drift together.
         offset = random.uniform(0.12, 0.5)
         if random.random() < 0.5:
             offset = -offset
         return (hue + offset) % 1.0
 
-    def _set_bands(self, bands, seed=False):
-        bands = max(1, min(int(bands), MAX_BANDS))
-        if bands == self._bands:
+    def _set_mode(self, mode, seed=False):
+        mode = max(1, min(int(mode), MAX_MODES))
+        if mode == self._mode and not seed:
             return
         now = time.monotonic()
 
-        if seed or self._bands == 0:
-            frm = [random.random() for _ in range(bands)]
+        group_of = self._grouping_for(mode)
+        ngroups = max(group_of) + 1
+
+        if seed:
+            # First run: pick random anchors and start every segment on its color
+            # so the tree lights up immediately rather than fading in from black.
+            anchor = [random.random() for _ in range(ngroups)]
+            for s in range(5):
+                self._seg_disp[s] = anchor[group_of[s]]
         else:
-            # Keep continuity across a count change: seed each new anchor from the
-            # color currently shown at its height so the tree doesn't flash-reshuffle.
-            old = self._disp
-            old_last = self._bands - 1
-            frm = []
-            for j in range(bands):
-                center = (j + 0.5) / bands
-                oi = min(old_last, int(center * self._bands))
-                frm.append(old[oi])
+            # Re-group without a flash: seed each new group from the color one of
+            # its segments is currently showing. _seg_disp is left untouched and
+            # eases onto the new group colors over the next frames.
+            anchor = [None] * ngroups
+            for s in range(5):
+                gi = group_of[s]
+                if anchor[gi] is None:
+                    anchor[gi] = self._seg_disp[s]
+            anchor = [h if h is not None else random.random() for h in anchor]
 
-        self._bands = bands
-        self._assign_blend()
-        self._disp = list(frm)
-        self._frm = list(frm)
-        self._to = [self._next_hue(h) for h in frm]
-        # Stagger start times so the anchors don't all change at once.
-        self._t0 = [now - random.uniform(0.0, 1.0) for _ in range(bands)]
-        self._dur = [self._new_dur() for _ in range(bands)]
+        self._mode = mode
+        self._group_of = group_of
+        self._ngroups = ngroups
+        self._anchor = list(anchor)               # current eased hue per group
+        self._frm = list(anchor)
+        self._to = [self._next_hue(h) for h in anchor]
+        # Stagger start times so the groups don't all change at once.
+        self._t0 = [now - random.uniform(0.0, 1.0) for _ in range(ngroups)]
+        self._dur = [self._new_dur() for _ in range(ngroups)]
 
-    def set_bands(self, bands):
-        self._set_bands(bands)
+    def set_mode(self, mode):
+        self._set_mode(mode)
 
     # ---- render -------------------------------------------------------
 
-    def _blend_hue(self, lo, hi, t):
-        if lo == hi:
-            return self._disp[lo]
-        h0 = self._disp[lo]
-        d = self._disp[hi] - h0
-        if d > 0.5:
-            d -= 1.0
-        elif d < -0.5:
-            d += 1.0
-        return (h0 + d * t) % 1.0
+    @staticmethod
+    def _shortest(delta):
+        if delta > 0.5:
+            return delta - 1.0
+        if delta < -0.5:
+            return delta + 1.0
+        return delta
 
     def draw(self):
         now = time.monotonic()
 
-        for b in range(self._bands):
-            dur = self._dur[b]
-            p = (now - self._t0[b]) / dur if dur > 0 else 1.0
+        # 1. Advance each group's anchor along its eased crossfade.
+        for g in range(self._ngroups):
+            dur = self._dur[g]
+            p = (now - self._t0[g]) / dur if dur > 0 else 1.0
             if p >= 1.0:
                 # Arrived: adopt the target and pick the next one.
-                self._frm[b] = self._to[b]
-                self._to[b] = self._next_hue(self._frm[b])
-                self._t0[b] = now
-                self._dur[b] = self._new_dur()
-                self._disp[b] = self._frm[b]
+                self._frm[g] = self._to[g]
+                self._to[g] = self._next_hue(self._frm[g])
+                self._t0[g] = now
+                self._dur[g] = self._new_dur()
+                self._anchor[g] = self._frm[g]
             else:
                 e = p * p * (3.0 - 2.0 * p)
-                frm = self._frm[b]
-                d = self._to[b] - frm
-                if d > 0.5:
-                    d -= 1.0
-                elif d < -0.5:
-                    d += 1.0
-                self._disp[b] = (frm + d * e) % 1.0
+                self._anchor[g] = (self._frm[g] + self._shortest(self._to[g] - self._frm[g]) * e) % 1.0
 
+        # 2. Ease each segment's shown color toward its group's anchor. This is the
+        #    continuity layer that keeps mode switches and color changes smooth.
+        dt = now - self._last
+        self._last = now
+        k = 1.0 if dt <= 0.0 else 1.0 - math.exp(-dt / _FOLLOW_TAU)
+        for s in range(5):
+            tgt = self._anchor[self._group_of[s]]
+            self._seg_disp[s] = (self._seg_disp[s] + self._shortest(tgt - self._seg_disp[s]) * k) % 1.0
+
+        # 3. Paint every LED with its segment's current color.
         px = self.pixel_object
-        lo, hi, tt, dither = self._lo, self._hi, self._t, self._dither
-        for i in range(len(self._h)):
-            hue = self._blend_hue(lo[i], hi[i], tt[i])
-            r, g, b = hsv_to_rgb(hue, 1.0, 1.0)
+        seg, disp, dither = self._seg, self._seg_disp, self._dither
+        for i in range(len(seg)):
+            r, g, b = hsv_to_rgb(disp[seg[i]], 1.0, 1.0)
             put_dithered(px, i, (int(r * 255), int(g * 255), int(b * 255)), dither[i])

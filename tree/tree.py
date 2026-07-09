@@ -47,6 +47,7 @@ class Tree:
   def __init__(self):
     self.string = neopixel.NeoPixel(board.A1, 100, brightness=0.2, auto_write=False, pixel_order=neopixel.RGB)
     self.coordinates = self.read_coordinates()
+    self.segments = self.read_segments()
     self._z_order = None  # pixel indices sorted bottom-to-top, computed on demand
     self._sprout_delays = None  # per-pixel wavefront delays (bottom-up), computed on demand
     self._drain_delays = None   # per-pixel wavefront delays (top-down), computed on demand
@@ -377,7 +378,7 @@ class Tree:
     """Set the current animation's secondary parameter from a normalized 0..1 value.
 
     Each effect maps it to its own second control — the same knob the dial's RIGHT
-    encoder drives (see Controller._adjust_param): hue_shift color count, rainbow
+    encoder drives (see Controller._adjust_param): hue_shift segmentation mode, rainbow
     color spread, cherry blossom mix, pinwheel arm count. Effects without a second
     parameter ignore it.
     """
@@ -385,7 +386,7 @@ class Tree:
       return
     value = 0.0 if value < 0 else 1.0 if value > 1 else value
     if isinstance(self.animation, HueShift):
-      self.animation.set_bands(1 + int(round(value * 4)))    # 1..5 colors
+      self.animation.set_mode(1 + int(round(value * 4)))     # 1..5 segmentation modes
     elif isinstance(self.animation, RainbowCycle):
       self.animation.bandwidth = 0.1 + value * 1.9           # 0.1..2.0 cycles/height
     elif isinstance(self.animation, CherryBlossom):
@@ -397,7 +398,7 @@ class Tree:
     """The current secondary parameter normalized to 0..1 (0.5 if the effect has none)."""
     a = self.animation
     if isinstance(a, HueShift):
-      return (a._bands - 1) / 4
+      return (a._mode - 1) / 4
     elif isinstance(a, RainbowCycle):
       return (a.bandwidth - 0.1) / 1.9
     elif isinstance(a, CherryBlossom):
@@ -409,7 +410,7 @@ class Tree:
   def load_effect(self, effect_name: str, params=None):
       params = params or {}
       if effect_name == 'hue_shift':
-          return HueShift(self.string, self.coordinates, speed=0.01, name='hue_shift', bands=1, shift_speed=0.5)
+          return HueShift(self.string, self.coordinates, self.segments, speed=0.01, name='hue_shift', mode=1, shift_speed=0.5)
       elif effect_name == 'rainbow_cycle':
           # Start with medium speed (frequency = 1.0)
           return RainbowCycle(self.string, self.coordinates, speed=0.01, frequency=1.0, name='rainbow_cycle')
@@ -464,6 +465,22 @@ class Tree:
               values = line.split(',')
               coordinates.append((int(values[0]), int(values[1]), int(values[2])))
       return coordinates
+
+  def read_segments(self):
+      """Per-LED segment id (0 = trunk, 1..4 = branches), parallel to coordinates.
+
+      Precomputed by tools/gen_segments.py into segments.csv. Falls back to all-trunk
+      if the file is missing so hue_shift still renders (as a single-color tree)."""
+      segments = []
+      try:
+          with open('segments.csv', 'r') as file:
+              for line in file:
+                  line = line.strip()
+                  if line:
+                      segments.append(int(line))
+      except OSError:
+          segments = [0] * len(self.coordinates)
+      return segments
 
   def calculate_perceived_color(self, pixels):
     """Calculate the perceived dominant color using brightness-weighted average of top 25% brightest pixels.
