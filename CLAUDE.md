@@ -12,7 +12,7 @@ All device code lives in [tree/](tree/) and runs *on the microcontroller* under 
 
 The board mounts as a USB drive at `/Volumes/CIRCUITPY/`. CircuitPython auto-runs `code.py` on boot and reloads on file change.
 
-- **Live sync while editing:** `./deploy.sh` — watches [tree/](tree/) with `fswatch` and rsyncs changed files to `/Volumes/CIRCUITPY/`. There is no build or compile step; edited files run on save.
+- **Deploying:** `./deploy.sh` — syncs all of [tree/](tree/) to `/Volumes/CIRCUITPY/` once and exits (default). `./deploy.sh --watch` instead watches with `fswatch` and rsyncs changed files continuously. There is no build or compile step; edited files run on save. CircuitPython auto-reloads on each USB write, but the reboot is deferred until writes settle and then takes ~10-20s (WiFi + MQTT reconnect) before the new code is serving; for a deterministic, immediate reload, `curl http://<host>:7433/reboot` after a sync.
 - **Libraries:** managed with `circup` (in `venv/bin/`), driven by [tree/circuitpython-requirements.txt](tree/circuitpython-requirements.txt). These are the `adafruit_*` / `neopixel` bundle libraries installed onto the board's `lib/` — do not expect them to import on the host.
 - **Serial console / REPL:** use `pyserial-miniterm` (in `venv/bin/`) against the board's USB serial port to see `print()` output; the code is heavily instrumented with prints for debugging over serial.
 - **Secrets:** copy [tree/settings.toml.example](tree/settings.toml.example) to `tree/settings.toml` (WiFi, MQTT broker, mDNS name, server port). `settings.toml` is gitignored and excluded from deploy — never commit it. Values are read at runtime via `os.getenv(...)`.

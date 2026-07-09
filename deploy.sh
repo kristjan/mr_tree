@@ -4,6 +4,11 @@
 #   ./deploy.sh            # sync all of tree/ to the board once, then exit (default)
 #   ./deploy.sh --once      # same as above
 #   ./deploy.sh --watch    # watch tree/ and sync changed files continuously
+#
+# CircuitPython auto-reloads on every USB write, so a save syncs and the board
+# reboots itself. The reload is deferred until writes settle and then takes ~10-20s
+# (WiFi + MQTT reconnect); during that window the old code is still serving. For a
+# deterministic, immediate reload, curl http://<host>:7433/reboot after a sync.
 
 CIRCUITPY="/Volumes/CIRCUITPY/"
 TREE_SRC="tree/"
@@ -53,6 +58,10 @@ fi
 
 # Watch mode
 TREE_SRC_ABS=$(cd "${TREE_SRC}" && pwd)
+
+# Bring the board current before watching, so the running code matches the repo
+# even if it drifted while the watcher was down (the source of stale-runtime bugs).
+sync_all
 
 debug "Starting watch on ${TREE_SRC}"
 COPYFILE_DISABLE=1 fswatch -0 ${TREE_SRC} | while IFS= read -r -d '' f; do
