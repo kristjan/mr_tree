@@ -19,6 +19,21 @@ SPROUT_S = 1.2    # turning on: light sprouts from the bottom up
 DRAIN_S = 1.0     # turning off: light drains from the branches down the trunk
 SPREAD = 0.75     # fraction of a sprout/drain that is spatially staggered
 
+# The 0-255 HA/API brightness maps onto 0..MAX_BRIGHTNESS of the NeoPixel hardware
+# range. The cap bounds current draw (and limits the color distortion/voltage droop
+# a 100-LED strand shows at full drive); a higher cap also means more distinct output
+# levels, so fades band less.
+#
+# Power budget (shared 5V / 2.4A = 12W supply — strand, board, and dials together):
+#   100 LEDs at full white draw ~6.0A at multiplier 1.0 (~60mA each, conservative),
+#   scaling ~linearly with the multiplier. Non-strand overhead (ESP32-S3 + WiFi
+#   bursts + dials) is ~0.3A. So worst case (full white) at the cap is:
+#     0.25 -> 1.8A (75% of supply)      0.30 -> 2.1A (87%)      0.35 -> 2.4A (100%)
+#   0.30 keeps ~0.3A of headroom even on the pessimistic 60mA/LED figure (real
+#   WS2812Bs draw less), so it is the safe way to reclaim range. See
+#   scratch/power_budget.py. Lower this if the strand ever browns out the board.
+MAX_BRIGHTNESS = 0.30
+
 class Position:
   LEFT = 0
   CENTER = 1
@@ -37,7 +52,7 @@ class Tree:
     self._transition = None     # active Transition, stepped by animate()
     self._power_listeners = []  # fn(on) called when the tree powers on/off
     self._is_on = True          # logical power state (independent of mid-fade brightness)
-    self._on_brightness = 0.2   # hardware brightness (0-0.25) to restore when turned on
+    self._on_brightness = 0.2   # hardware brightness (0..MAX_BRIGHTNESS) to restore when on
     self._target_brightness = 0.2  # hardware brightness state() reports (the intended value)
     self.previous_brightness = 0.2  # Store initial brightness
     self.on()
@@ -108,7 +123,7 @@ class Tree:
       self.string, start_pixels=(0, 0, 0), target_pixels=target_pixels,
       start_brightness=target, target_brightness=target, duration=dur,
       spread=SPREAD, delays=self._reveal_delays(reverse=False), owns_pixels=True,
-      report_color=report, report_brightness=int(target / 0.25 * 255))
+      report_color=report, report_brightness=int(target / MAX_BRIGHTNESS * 255))
 
   def off(self, duration=None):
     """Turn the tree off, draining light out of the branches and down the trunk.
@@ -220,18 +235,18 @@ class Tree:
 
     Args:
         brightness: Value from 0-255 (HA/API range), scaled to the LED string's
-            0-0.25 hardware range to limit current draw and color distortion.
+            0..MAX_BRIGHTNESS hardware range to bound current draw and distortion.
         duration: seconds to ramp over; None uses FADE_S, 0 snaps instantly.
 
     A brightness-only fade does not touch the pixel buffer, so it runs alongside a
     live animation. If a pixel transition is already in flight (e.g. a color fade
     from the same HA message), the new brightness target is merged into it.
     """
-    hw = brightness / 255 * 0.25
+    hw = brightness / 255 * MAX_BRIGHTNESS
     if hw < 0:
       hw = 0.0
-    elif hw > 0.25:
-      hw = 0.25
+    elif hw > MAX_BRIGHTNESS:
+      hw = MAX_BRIGHTNESS
     self._target_brightness = hw
     if self._is_on:
       self._on_brightness = hw
@@ -445,7 +460,7 @@ class Tree:
 
     return {
       "state": "ON" if self._is_on else "OFF",
-      "brightness": int(self._target_brightness / 0.25 * 255),  # Convert 0-0.25 to 0-255
+      "brightness": int(self._target_brightness / MAX_BRIGHTNESS * 255),  # hw -> 0-255
       "color": {
         "r": perceived_color[0],
         "g": perceived_color[1],

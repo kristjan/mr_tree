@@ -37,7 +37,7 @@ Both the HTTP routes and the MQTT message handlers funnel into **`handle_state_c
 
 ### The Tree — [tree/tree.py](tree/tree.py)
 `Tree` owns the `NeoPixel` strand and the currently active animation. Key behaviors that are easy to get wrong:
-- **Brightness is scaled, not literal.** HA/API brightness is 0–255 but is mapped to a physical `0–0.25` range (`brightness / 255 * 0.25`) to avoid color distortion at full drive. `state()` reverses the scaling. Any brightness math must respect this.
+- **Brightness is scaled, not literal.** HA/API brightness is 0–255 but is mapped to a physical `0..MAX_BRIGHTNESS` range (`brightness / 255 * MAX_BRIGHTNESS`, the `MAX_BRIGHTNESS` constant in [tree/tree.py](tree/tree.py)) to bound current draw against the shared 5V/2.4A supply and limit color distortion at full drive. `state()` reverses the scaling. Any brightness math must respect this; read the power-budget comment on the constant before raising it.
 - **On/off is brightness, not power.** `off()` stores current brightness and sets it to 0 (pausing any animation); `on()` restores it, filling 20% white if the strand was all-black so a bare HA "ON" produces visible light.
 - **Perceived color** reported to HA is a brightness-weighted average of the top 25% brightest sampled pixels (`calculate_perceived_color`), sampling ~10 pixels to limit memory churn.
 - **Coordinates** are loaded from [tree/coordinates.csv](tree/coordinates.csv) (100 rows of `x,y,z`); index = pixel index. This drives all spatial effects.
