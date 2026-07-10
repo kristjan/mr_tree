@@ -1,0 +1,390 @@
+# Mr Tree — ESPHome port (spike). See project/esphome-migration.md.
+#
+# Renders the CircuitPython effects (ported to tree_effects.h) on the WS2812 strand
+# via RMT+DMA, exposes a Home Assistant light + effect list + control numbers + a
+# timer subsystem over the native API. Dials are added in a later step.
+
+substitutions:
+  name: mr-tree
+  friendly_name: Mr Tree
+
+esphome:
+  name: ${name}
+  friendly_name: ${friendly_name}
+  # Copied into the build so the lambdas can call the ported effect math.
+  includes:
+    - tree_coords.h
+    - tree_effects.h
+  on_boot:
+    priority: -100
+    then:
+      # Boot rainbow, then settle onto the default effect (mirrors the CircuitPython
+      # startup: a static red->purple fill before the remembered setting).
+      - light.turn_on:
+          id: tree_light
+          brightness: 100%
+          effect: "Boot Rainbow"
+      - delay: 3s
+      - light.turn_on:
+          id: tree_light
+          effect: "Hue Shift"
+      # Dial LEDs: left red, center green, right blue (matches the dial calibration).
+      - light.turn_on: { id: led_left, red: 100%, green: 0%, blue: 0%, brightness: 40% }
+      - light.turn_on: { id: led_center, red: 0%, green: 100%, blue: 0%, brightness: 40% }
+      - light.turn_on: { id: led_right, red: 0%, green: 0%, blue: 100%, brightness: 40% }
+
+esp32:
+  board: adafruit_feather_esp32s3
+  framework:
+    type: esp-idf
+
+logger:
+
+# Native Home Assistant API — one-click adopt, no MQTT discovery to maintain.
+api:
+
+# Firmware push over WiFi (the "push new code over wifi" TODO item).
+ota:
+  - platform: esphome
+
+wifi:
+  ssid: !secret wifi_ssid
+  password: !secret wifi_password
+  ap:
+    ssid: "Mr Tree Fallback"
+
+# mDNS is enabled by default -> reachable as ${name}.local
+
+# --- Dials: three Adafruit seesaw rotary encoders over I2C -------------------
+# Hardware order (confirmed in encoders.py): LEFT=0x37, CENTER=0x38, RIGHT=0x36.
+# Button on seesaw pin 24, onboard NeoPixel on pin 6.
+external_components:
+  - source: github://ssieb/esphome_components
+    components: [seesaw]
+
+i2c:
+  sda: GPIO3
+  scl: GPIO4
+  frequency: 400kHz
+
+seesaw:
+  - id: dial_left
+    address: 0x37
+  - id: dial_center
+    address: 0x38
+  - id: dial_right
+    address: 0x36
+
+globals:
+  - id: fx_speed          # 0..1, shared animation speed
+    type: float
+    restore_value: yes
+    initial_value: "0.5"
+  - id: hueshift_mode     # 1..5 grouping
+    type: float
+    restore_value: yes
+    initial_value: "1"
+  - id: rainbow_bandwidth # color cycles over tree height
+    type: float
+    restore_value: yes
+    initial_value: "1"
+  - id: pinwheel_repeats  # color cycles around the circle
+    type: float
+    restore_value: yes
+    initial_value: "1"
+  - id: cherry_pink       # 0..1 fraction of branches twinkling pink
+    type: float
+    restore_value: yes
+    initial_value: "0.4"
+  - id: timer_duration    # seconds
+    type: float
+    restore_value: yes
+    initial_value: "300"
+  - id: enc_left_last     # last cumulative encoder positions (for delta)
+    type: float
+    initial_value: "0"
+  - id: enc_center_last
+    type: float
+    initial_value: "0"
+  - id: enc_right_last
+    type: float
+    initial_value: "0"
+  - id: fx_index          # index into the dial-cycled effect list
+    type: float
+    restore_value: yes
+    initial_value: "0"
+
+light:
+  - platform: esp32_rmt_led_strip
+    id: tree_light
+    name: "Tree"
+    pin: GPIO18            # board.A1 on the Feather ESP32-S3
+    num_leds: 100
+    chipset: WS2812
+    rgb_order: RGB         # the strand is wired RGB, not GRB (matches CircuitPython)
+    use_dma: true          # offload pixel timing so animation stays smooth under load
+    default_transition_length: 0.6s
+    effects:
+      - addressable_lambda:
+          name: "Hue Shift"
+          update_interval: 16ms
+          lambda: |-
+            tree::hueshift_step(millis() / 1000.0f, id(fx_speed), (int) id(hueshift_mode));
+            for (int i = 0; i < it.size(); i++) { auto c = tree::hueshift_color(i); it[i] = Color(c.r, c.g, c.b); }
+      - addressable_lambda:
+          name: "Rainbow Cycle"
+          update_interval: 16ms
+          lambda: |-
+            tree::rainbow_step(millis() / 1000.0f, id(fx_speed), id(rainbow_bandwidth));
+            for (int i = 0; i < it.size(); i++) { auto c = tree::rainbow_color(i, id(rainbow_bandwidth)); it[i] = Color(c.r, c.g, c.b); }
+      - addressable_lambda:
+          name: "Pinwheel"
+          update_interval: 16ms
+          lambda: |-
+            tree::pinwheel_step(millis() / 1000.0f, id(fx_speed));
+            for (int i = 0; i < it.size(); i++) { auto c = tree::pinwheel_color(i, (int) id(pinwheel_repeats)); it[i] = Color(c.r, c.g, c.b); }
+      - addressable_lambda:
+          name: "Cherry Blossom"
+          update_interval: 16ms
+          lambda: |-
+            tree::cherry_step(millis() / 1000.0f, id(fx_speed));
+            for (int i = 0; i < it.size(); i++) { auto c = tree::cherry_color(i, id(cherry_pink)); it[i] = Color(c.r, c.g, c.b); }
+      - addressable_lambda:
+          name: "Timer"
+          update_interval: 16ms
+          lambda: |-
+            float now = millis() / 1000.0f;
+            tree::timer_step(now);
+            for (int i = 0; i < it.size(); i++) { auto c = tree::timer_color(i, now); it[i] = Color(c.r, c.g, c.b); }
+      - addressable_lambda:
+          name: "Boot Rainbow"
+          update_interval: 33ms
+          lambda: |-
+            for (int i = 0; i < it.size(); i++) { auto c = tree::boot_color(i); it[i] = Color(c.r, c.g, c.b); }
+
+  # Onboard NeoPixel on each dial (feedback / presence indicator).
+  - platform: seesaw
+    seesaw: dial_left
+    pin: 6
+    name: "Left Dial LED"
+    id: led_left
+    default_transition_length: 0s
+  - platform: seesaw
+    seesaw: dial_center
+    pin: 6
+    name: "Center Dial LED"
+    id: led_center
+    default_transition_length: 0s
+  - platform: seesaw
+    seesaw: dial_right
+    pin: 6
+    name: "Right Dial LED"
+    id: led_right
+    default_transition_length: 0s
+
+number:
+  - platform: template
+    name: "Speed"
+    id: num_speed
+    min_value: 0
+    max_value: 100
+    step: 1
+    optimistic: true
+    restore_value: true
+    initial_value: 50
+    set_action:
+      - globals.set:
+          id: fx_speed
+          value: !lambda "return x / 100.0f;"
+  - platform: template
+    name: "Hue Shift Mode"
+    min_value: 1
+    max_value: 5
+    step: 1
+    optimistic: true
+    restore_value: true
+    initial_value: 1
+    set_action:
+      - globals.set:
+          id: hueshift_mode
+          value: !lambda "return x;"
+  - platform: template
+    name: "Rainbow Bandwidth"
+    min_value: 1
+    max_value: 4
+    step: 0.5
+    optimistic: true
+    restore_value: true
+    initial_value: 1
+    set_action:
+      - globals.set:
+          id: rainbow_bandwidth
+          value: !lambda "return x;"
+  - platform: template
+    name: "Pinwheel Repeats"
+    min_value: 1
+    max_value: 6
+    step: 1
+    optimistic: true
+    restore_value: true
+    initial_value: 1
+    set_action:
+      - globals.set:
+          id: pinwheel_repeats
+          value: !lambda "return x;"
+  - platform: template
+    name: "Cherry Pink"
+    min_value: 0
+    max_value: 100
+    step: 1
+    optimistic: true
+    restore_value: true
+    initial_value: 40
+    set_action:
+      - globals.set:
+          id: cherry_pink
+          value: !lambda "return x / 100.0f;"
+  - platform: template
+    name: "Timer Duration"
+    id: num_timer_duration
+    min_value: 1
+    max_value: 86400
+    step: 1
+    unit_of_measurement: s
+    optimistic: true
+    restore_value: true
+    initial_value: 300
+    set_action:
+      - globals.set:
+          id: timer_duration
+          value: !lambda "return x;"
+      - lambda: "tree::timer_set_duration(x);"
+
+sensor:
+  - platform: template
+    name: "Timer Remaining"
+    id: timer_remaining_sensor
+    unit_of_measurement: s
+    accuracy_decimals: 0
+    update_interval: 1s
+    lambda: "return tree::timer_remaining(millis() / 1000.0f);"
+
+  # LEFT dial: rotate = brightness.
+  - platform: seesaw
+    seesaw: dial_left
+    type: encoder
+    id: enc_left
+    internal: true
+    min_value: -1000000
+    max_value: 1000000
+    on_value:
+      then:
+        - lambda: |-
+            float d = x - id(enc_left_last); id(enc_left_last) = x;
+            if (d == 0 || d > 20 || d < -20) return;
+            float nb = id(tree_light).current_values.get_brightness() + d * 0.03f;
+            if (nb < 0.05f) nb = 0.05f; if (nb > 1.0f) nb = 1.0f;
+            auto call = id(tree_light).turn_on(); call.set_brightness(nb); call.perform();
+  # CENTER dial: rotate = cycle through effects.
+  - platform: seesaw
+    seesaw: dial_center
+    type: encoder
+    id: enc_center
+    internal: true
+    min_value: -1000000
+    max_value: 1000000
+    on_value:
+      then:
+        - lambda: |-
+            static const char *FX[] = {"Hue Shift", "Rainbow Cycle", "Pinwheel", "Cherry Blossom"};
+            float d = x - id(enc_center_last); id(enc_center_last) = x;
+            if (d == 0 || d > 20 || d < -20) return;
+            int idx = ((int) id(fx_index) + (d > 0 ? 1 : -1)) % 4; if (idx < 0) idx += 4;
+            id(fx_index) = idx;
+            auto call = id(tree_light).turn_on(); call.set_effect(FX[idx]); call.perform();
+  # RIGHT dial: rotate = animation speed.
+  - platform: seesaw
+    seesaw: dial_right
+    type: encoder
+    id: enc_right
+    internal: true
+    min_value: -1000000
+    max_value: 1000000
+    on_value:
+      then:
+        - lambda: |-
+            float d = x - id(enc_right_last); id(enc_right_last) = x;
+            if (d == 0 || d > 20 || d < -20) return;
+            float s = id(fx_speed) + d * 0.03f;
+            if (s < 0.0f) s = 0.0f; if (s > 1.0f) s = 1.0f;
+            id(fx_speed) = s;
+
+binary_sensor:
+  # LEFT dial button: toggle power.
+  - platform: seesaw
+    seesaw: dial_left
+    pin: 24
+    id: btn_left
+    internal: true
+    on_press:
+      - lambda: |-
+          if (id(tree_light).current_values.is_on()) id(tree_light).turn_off().perform();
+          else id(tree_light).turn_on().perform();
+  # CENTER dial button: (reserved).
+  - platform: seesaw
+    seesaw: dial_center
+    pin: 24
+    id: btn_center
+    internal: true
+  # RIGHT dial button: start / pause-resume the timer.
+  - platform: seesaw
+    seesaw: dial_right
+    pin: 24
+    id: btn_right
+    internal: true
+    on_press:
+      - lambda: |-
+          float now = millis() / 1000.0f;
+          int st = tree::timer_state_code();
+          if (st == 1) { tree::timer_pause(now); }
+          else if (st == 2) { tree::timer_resume(now); }
+          else {
+            tree::timer_start(now, id(timer_duration));
+            auto c = id(tree_light).turn_on(); c.set_effect("Timer"); c.perform();
+          }
+
+text_sensor:
+  - platform: template
+    name: "Timer State"
+    id: timer_state_sensor
+    update_interval: 1s
+    lambda: |-
+      switch (tree::timer_state_code()) {
+        case 1: return {"active"};
+        case 2: return {"paused"};
+        default: return {"idle"};
+      }
+
+button:
+  - platform: template
+    name: "Timer Start"
+    on_press:
+      - lambda: "tree::timer_start(millis() / 1000.0f, id(timer_duration));"
+      - light.turn_on:
+          id: tree_light
+          effect: "Timer"
+  - platform: template
+    name: "Timer Pause"
+    on_press:
+      - lambda: "tree::timer_pause(millis() / 1000.0f);"
+  - platform: template
+    name: "Timer Resume"
+    on_press:
+      - lambda: "tree::timer_resume(millis() / 1000.0f);"
+  - platform: template
+    name: "Timer Cancel"
+    on_press:
+      - lambda: "tree::timer_cancel();"
+      - light.turn_on:
+          id: tree_light
+          effect: "Hue Shift"

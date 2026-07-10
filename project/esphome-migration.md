@@ -1,6 +1,8 @@
 # ESPHome migration
 
-Status: **evaluated, spike recommended, not started.** The device runs a hand-written CircuitPython app (asyncio event loop, MQTT discovery). This documents whether moving to **ESPHome** on the same board buys us the two things we want — *tighter Home Assistant integration* and *smoother animations* — and how we'd do it. Nothing is broken today; this is a deliberate platform change, not a fix.
+Status: **spike BUILT on the `esphome` branch, compiles clean, not yet run on hardware.** The device runs a hand-written CircuitPython app (asyncio event loop, MQTT discovery). This documents whether moving to **ESPHome** on the same board buys us the two things we want — *tighter Home Assistant integration* and *smoother animations* — and how we'd do it. Nothing is broken today; this is a deliberate platform change, not a fix.
+
+**Spike (this branch):** a full port lives under [esphome/](../esphome/) — light (RMT+DMA) + all effects + timer + HA entities + the three seesaw dials — and **compiles green under ESP-IDF**. Flash it with `esphome/flash.sh` (reverts via `provision_board.sh`). The one thing left to prove is on-hardware smoothness/feel — see [esphome/README.md](../esphome/README.md).
 
 Relationship to the [CircuitPython 10 upgrade](circuitpython-10-upgrade.md): these are **alternative directions**, not both. A full ESPHome move replaces the firmware and the whole CircuitPython app; if we commit to it, the CP10 upgrade is moot. Don't do both.
 

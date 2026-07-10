@@ -1,0 +1,5 @@
+# Real secrets (generated from ../settings.toml)
+secrets.yaml
+# ESPHome build tree
+.esphome/
+build/
