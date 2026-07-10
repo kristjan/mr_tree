@@ -22,10 +22,11 @@ namespace tree {
 
 struct RGB { uint8_t r, g, b; };
 
-// Power cap for effect output. color_correct in mr_tree.yaml does NOT reach the
-// addressable_lambda pixels on this platform (confirmed on hardware), so the effect
-// cap must live here. color_correct still backstops the light's base color.
-static constexpr float MAX_BRIGHT = 0.30f;
+// Full-range output. The power cap is applied ONCE, at the light level, by
+// color_correct: [30%,30%,30%] in mr_tree.yaml — ESPHome's ESPColorView::set_red()
+// applies that correction to every effect pixel at write time (see esp_color_view.h),
+// so capping again here would double-dim (0.30*0.30 = 9%). Keep at 1.0.
+static constexpr float MAX_BRIGHT = 1.0f;
 static constexpr int TRUNK_LED_COUNT = 36;   // cherry-blossom trunk split (by height)
 static constexpr float TWO_PI = 6.28318530718f;
 
