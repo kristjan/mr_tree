@@ -8,9 +8,9 @@
 // The ESPHome addressable_lambda does: <effect>_step(...);  then
 //   for (i) it[i] = Color(<effect>_color(i));
 //
-// Power cap: applied ONCE at the light level (color_correct: [30%,30%,30%] in
-// mr_tree.yaml), bounding ALL output — base color, boot, and effects — to the shared
-// 5V/2.4A budget. Effects here output full-range color; MAX_BRIGHT stays 1.0.
+// Power cap: every effect color is scaled by MAX_BRIGHT (0.30) so full-white output
+// stays within the 5V/2.4A budget. color_correct at the light level backstops the
+// base color (it does NOT reach these lambda writes — confirmed on hardware).
 #pragma once
 #include <cmath>
 #include <cstdint>
@@ -22,9 +22,10 @@ namespace tree {
 
 struct RGB { uint8_t r, g, b; };
 
-// Full-range output; the hardware power cap is applied ONCE at the light level via
-// color_correct in mr_tree.yaml (covers base color + effects uniformly). Keep at 1.0.
-static constexpr float MAX_BRIGHT = 1.0f;
+// Power cap for effect output. color_correct in mr_tree.yaml does NOT reach the
+// addressable_lambda pixels on this platform (confirmed on hardware), so the effect
+// cap must live here. color_correct still backstops the light's base color.
+static constexpr float MAX_BRIGHT = 0.30f;
 static constexpr int TRUNK_LED_COUNT = 36;   // cherry-blossom trunk split (by height)
 static constexpr float TWO_PI = 6.28318530718f;
 
