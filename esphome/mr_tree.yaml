@@ -25,14 +25,9 @@ esphome:
           brightness: 100%
           effect: "Boot Rainbow"
       - delay: 3s
-      - globals.set: { id: fx_index, value: "0" }
       - light.turn_on:
           id: tree_light
           effect: "Hue Shift"
-      # Dial LEDs: dim white presence indicator (roles are per-effect, not per-LED).
-      - light.turn_on: { id: led_left, red: 100%, green: 100%, blue: 100%, brightness: 20% }
-      - light.turn_on: { id: led_center, red: 100%, green: 100%, blue: 100%, brightness: 20% }
-      - light.turn_on: { id: led_right, red: 100%, green: 100%, blue: 100%, brightness: 20% }
 
 esp32:
   board: adafruit_feather_esp32s3
@@ -64,37 +59,14 @@ wifi:
 
 # mDNS is enabled by default -> reachable as ${name}.local
 
-# --- Dials: three Adafruit seesaw rotary encoders over I2C -------------------
-# Hardware order (confirmed in encoders.py): LEFT=0x37, CENTER=0x38, RIGHT=0x36.
-# Button on seesaw pin 24, onboard NeoPixel on pin 6.
-external_components:
-  - source: github://ssieb/esphome_components
-    components: [seesaw]
-
-# STEMMA-QT / I2C power is gated by GPIO7 on this board; without it the bus is
-# unpowered (SCL reads low, "no devices", and blocking timeouts starve the loop).
-# CircuitPython's board.I2C() enables this for you; ESPHome must do it explicitly.
-# restore_mode ALWAYS_ON drives GPIO7 high at setup, before the seesaw components init.
-switch:
-  - platform: gpio
-    pin: GPIO7
-    id: i2c_power
-    internal: true
-    restore_mode: ALWAYS_ON
-
-i2c:
-  sda: GPIO3
-  scl: GPIO4
-  frequency: 400kHz
-  scan: false          # skip the startup scan (devices power up after GPIO7 goes high)
-
-seesaw:
-  - id: dial_left
-    address: 0x37
-  - id: dial_center
-    address: 0x38
-  - id: dial_right
-    address: 0x36
+# --- Dials: DISABLED pending an I2C-bus fix ---------------------------------
+# The three seesaw dials sit on a marginal I2C bus (SDA GPIO3 / SCL GPIO4, power
+# GPIO7) that reports "SCL held low" and returns garbage — the blocking reads
+# stalled the render loop (bursty fades) and fired phantom effect/power changes.
+# The full dial config (external seesaw component, i2c + GPIO7 power switch, three
+# seesaw devices, encoder sensors, buttons, dial NeoPixels) is in git history at
+# commit be00a6c. Re-add once the bus is reliable: pull-ups / lower clock rate /
+# power-sequencing GPIO7 high before i2c init.
 
 globals:
   - id: fx_speed          # 0..1, shared animation speed
@@ -121,19 +93,6 @@ globals:
     type: float
     restore_value: yes
     initial_value: "300"
-  - id: enc_left_last     # last cumulative encoder positions (for delta)
-    type: float
-    initial_value: "0"
-  - id: enc_center_last
-    type: float
-    initial_value: "0"
-  - id: enc_right_last
-    type: float
-    initial_value: "0"
-  - id: fx_index          # index into the dial-cycled effect list
-    type: float
-    restore_value: yes
-    initial_value: "0"
 
 light:
   - platform: esp32_rmt_led_strip
@@ -200,26 +159,6 @@ light:
           update_interval: 33ms
           lambda: |-
             for (int i = 0; i < it.size(); i++) { auto c = tree::boot_color(i); it[i] = Color(c.r, c.g, c.b); }
-
-  # Onboard NeoPixel on each dial (feedback / presence indicator).
-  - platform: seesaw
-    seesaw: dial_left
-    pin: 6
-    name: "Left Dial LED"
-    id: led_left
-    default_transition_length: 0s
-  - platform: seesaw
-    seesaw: dial_center
-    pin: 6
-    name: "Center Dial LED"
-    id: led_center
-    default_transition_length: 0s
-  - platform: seesaw
-    seesaw: dial_right
-    pin: 6
-    name: "Right Dial LED"
-    id: led_right
-    default_transition_length: 0s
 
 number:
   - platform: template
@@ -307,92 +246,6 @@ sensor:
     accuracy_decimals: 0
     update_interval: 1s
     lambda: "return tree::timer_remaining(millis() / 1000.0f);"
-
-  # Dial roles mirror the CircuitPython controller's Animation mode (the mode the
-  # tree normally sits in). LEFT = cycle effect, CENTER = speed, RIGHT = the current
-  # effect's parameter, RIGHT press-and-turn = master brightness. The full mode
-  # state machine (RGB / Timer modes, LEFT-press to switch) is not in this subset.
-  # LEFT dial: rotate = cycle effect.
-  - platform: seesaw
-    seesaw: dial_left
-    type: encoder
-    id: enc_left
-    internal: true
-    min_value: -1000000
-    max_value: 1000000
-    on_value:
-      then:
-        - lambda: |-
-            static const char *FX[] = {"Hue Shift", "Rainbow Cycle", "Cherry Blossom", "Pinwheel"};
-            float d = x - id(enc_left_last); id(enc_left_last) = x;
-            if (d == 0 || d > 20 || d < -20) return;
-            int idx = ((int) id(fx_index) + (d > 0 ? 1 : -1)) % 4; if (idx < 0) idx += 4;
-            id(fx_index) = idx;
-            auto call = id(tree_light).turn_on(); call.set_effect(FX[idx]); call.perform();
-  # CENTER dial: rotate = animation speed.
-  - platform: seesaw
-    seesaw: dial_center
-    type: encoder
-    id: enc_center
-    internal: true
-    min_value: -1000000
-    max_value: 1000000
-    on_value:
-      then:
-        - lambda: |-
-            float d = x - id(enc_center_last); id(enc_center_last) = x;
-            if (d == 0 || d > 20 || d < -20) return;
-            float s = id(fx_speed) + d * 0.05f;
-            if (s < 0.0f) s = 0.0f; if (s > 1.0f) s = 1.0f;
-            id(fx_speed) = s;
-  # RIGHT dial: rotate = current effect's parameter; press-and-turn = brightness.
-  - platform: seesaw
-    seesaw: dial_right
-    type: encoder
-    id: enc_right
-    internal: true
-    min_value: -1000000
-    max_value: 1000000
-    on_value:
-      then:
-        - lambda: |-
-            float d = x - id(enc_right_last); id(enc_right_last) = x;
-            if (d == 0 || d > 20 || d < -20) return;
-            if (id(btn_right).state) {   // press-and-turn = master brightness (any effect)
-              float nb = id(tree_light).current_values.get_brightness() + d * 0.05f;
-              if (nb < 0.05f) nb = 0.05f; if (nb > 1.0f) nb = 1.0f;
-              auto call = id(tree_light).turn_on(); call.set_brightness(nb); call.perform();
-              return;
-            }
-            int fx = (int) id(fx_index);
-            if (fx == 0)      { float v = id(hueshift_mode) + (d > 0 ? 1 : -1); if (v < 1) v = 1; if (v > 5) v = 5; id(hueshift_mode) = v; }
-            else if (fx == 1) { float v = id(rainbow_bandwidth) + d * 0.2f; if (v < 0.1f) v = 0.1f; if (v > 2.0f) v = 2.0f; id(rainbow_bandwidth) = v; }
-            else if (fx == 2) { float v = id(cherry_pink) + d * 0.05f; if (v < 0.1f) v = 0.1f; if (v > 0.9f) v = 0.9f; id(cherry_pink) = v; }
-            else              { float v = id(pinwheel_repeats) + (d > 0 ? 1 : -1); if (v < 1) v = 1; if (v > 4) v = 4; id(pinwheel_repeats) = v; }
-
-binary_sensor:
-  # LEFT dial button: reserved (cycles mode in the full controller).
-  - platform: seesaw
-    seesaw: dial_left
-    pin: 24
-    id: btn_left
-    internal: true
-  # CENTER dial button: toggle power.
-  - platform: seesaw
-    seesaw: dial_center
-    pin: 24
-    id: btn_center
-    internal: true
-    on_press:
-      - lambda: |-
-          if (id(tree_light).current_values.is_on()) id(tree_light).turn_off().perform();
-          else id(tree_light).turn_on().perform();
-  # RIGHT dial button: held while turning = brightness (read by the RIGHT encoder).
-  - platform: seesaw
-    seesaw: dial_right
-    pin: 24
-    id: btn_right
-    internal: true
 
 text_sensor:
   - platform: template
