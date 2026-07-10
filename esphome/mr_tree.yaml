@@ -141,9 +141,21 @@ light:
     name: "Tree"
     pin: GPIO17            # board.A1 on the Feather ESP32-S3 (GPIO17 per CircuitPython pins.c)
     num_leds: 100
-    chipset: WS2812
+    # Custom bit timing copied from CircuitPython's neopixel_write (ports/espressif/
+    # common-hal/neopixel_write). These fairy lights (Adafruit 4917) are timing-picky
+    # and latch garbage on ESPHome's standard WS2812 preset; these are the exact widths
+    # that drove them cleanly under CircuitPython, including the 300us reset.
+    bit0_high: 316ns
+    bit0_low: 948ns
+    bit1_high: 700ns
+    bit1_low: 564ns
+    reset_high: 0us
+    reset_low: 300us
     rgb_order: RGB         # the strand is wired RGB, not GRB (matches CircuitPython)
-    use_dma: true          # offload pixel timing so animation stays smooth under load
+    use_dma: false         # these fairy lights are timing-picky; plain RMT matches the
+                           # CircuitPython timing that drove them cleanly.
+    use_psram: false       # keep the pixel buffer in internal RAM — RMT fetching pixels
+                           # from PSRAM on the S3 corrupts individual LEDs (random colors).
     default_transition_length: 0.6s
     # Power caps: effects are capped in tree_effects.h (MAX_BRIGHT=0.30); color_correct
     # backstops the light's BASE color (effect=None / boot fill), which the effect cap
