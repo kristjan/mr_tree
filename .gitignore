@@ -2,5 +2,6 @@ settings.toml
 reference/
 scratch/
 firmware/
+.esphome/
 __pycache__/
 *.pyc
