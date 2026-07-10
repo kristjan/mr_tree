@@ -8,9 +8,9 @@
 // The ESPHome addressable_lambda does: <effect>_step(...);  then
 //   for (i) it[i] = Color(<effect>_color(i));
 //
-// Power cap: every color is scaled by MAX_BRIGHT (0.30) so full-white output stays
-// within the shared 5V/2.4A budget regardless of the HA brightness slider — the
-// same cap CircuitPython applied via MAX_BRIGHTNESS. See tree/tree.py.
+// Power cap: applied ONCE at the light level (color_correct: [30%,30%,30%] in
+// mr_tree.yaml), bounding ALL output — base color, boot, and effects — to the shared
+// 5V/2.4A budget. Effects here output full-range color; MAX_BRIGHT stays 1.0.
 #pragma once
 #include <cmath>
 #include <cstdint>
@@ -22,7 +22,9 @@ namespace tree {
 
 struct RGB { uint8_t r, g, b; };
 
-static constexpr float MAX_BRIGHT = 0.30f;   // power budget cap (matches MAX_BRIGHTNESS)
+// Full-range output; the hardware power cap is applied ONCE at the light level via
+// color_correct in mr_tree.yaml (covers base color + effects uniformly). Keep at 1.0.
+static constexpr float MAX_BRIGHT = 1.0f;
 static constexpr int TRUNK_LED_COUNT = 36;   // cherry-blossom trunk split (by height)
 static constexpr float TWO_PI = 6.28318530718f;
 

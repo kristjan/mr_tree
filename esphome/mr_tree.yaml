@@ -145,6 +145,11 @@ light:
     rgb_order: RGB         # the strand is wired RGB, not GRB (matches CircuitPython)
     use_dma: true          # offload pixel timing so animation stays smooth under load
     default_transition_length: 0.6s
+    # HARD power cap on ALL output — base color, boot, and effects alike — so full
+    # white can't exceed the 5V/2.4A budget (100 LEDs * 30% ~= 2.1A). This is the
+    # single source of truth for the cap; effects output full-range color.
+    gamma_correct: 0                  # write authored colors (matches the CircuitPython look)
+    color_correct: [30%, 30%, 30%]
     effects:
       - addressable_lambda:
           name: "Hue Shift"
