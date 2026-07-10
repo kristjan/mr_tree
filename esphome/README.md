@@ -54,26 +54,26 @@ nothing is hand-duplicated.
   (pin 24), and onboard NeoPixels (pin 6), via `ssieb/esphome_components`.
 - **Power cap**: every effect scales output by `MAX_BRIGHT = 0.30`, so full-white
   stays within the 5V/2.4A budget regardless of the HA brightness slider.
+- **Web UI + REST API** via `web_server` at `http://mr-tree.local/` (local/offline).
 
-### Dial behavior — first cut
+### Dial behavior — subset of the original
 
-The dial *hardware* is fully wired; the *behavior* is a deliberately simple first
-pass, not the full CircuitPython controller (modes / acceleration / press
-semantics):
+The dial *hardware* is fully wired. The *behavior* is a faithful subset of the
+CircuitPython controller's **Animation mode** — each dial keeps the same job it has
+there — but the full mode state machine (RGB / Timer modes, acceleration, all the
+press semantics from `tree/util/controller.py`) is not ported yet.
 
-- **LEFT**: rotate = brightness; press = toggle power.
-- **CENTER**: rotate = cycle effect; press = reserved.
-- **RIGHT**: rotate = speed; press = start / pause-resume timer.
-
-Porting the full mode/accel/press state machine (see `tree/util/controller.py`) is
-the remaining dial work — tracked in the migration doc.
+The current mapping lives in `mr_tree.yaml` (the seesaw `sensor`/`binary_sensor`
+blocks) — that's the source of truth; it isn't restated here so the two can't drift.
 
 ## Known differences from the CircuitPython app (intentional, for the spike)
 
 - **Native transitions** instead of the spatial sprout/drain fades and low-brightness
   dithering (a scope decision — revisit only if they disappoint).
 - **No perceived-color HA reporting** (dropped — no ESPHome equivalent).
-- **No custom web UI** on :7433 — Home Assistant is the UI.
+- **Web UI**: the `web_server` component serves a local page at `http://mr-tree.local/`
+  plus a REST API (`/<domain>/<entity>/<action>`). A custom page can drive the device
+  with low-level calls to that API. It is not a reproduction of the old :7433 SPA.
 - Effect params exposed as separate HA `number` entities rather than the single
   `speed` attribute.
 

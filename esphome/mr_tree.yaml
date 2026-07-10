@@ -25,13 +25,14 @@ esphome:
           brightness: 100%
           effect: "Boot Rainbow"
       - delay: 3s
+      - globals.set: { id: fx_index, value: "0" }
       - light.turn_on:
           id: tree_light
           effect: "Hue Shift"
-      # Dial LEDs: left red, center green, right blue (matches the dial calibration).
-      - light.turn_on: { id: led_left, red: 100%, green: 0%, blue: 0%, brightness: 40% }
-      - light.turn_on: { id: led_center, red: 0%, green: 100%, blue: 0%, brightness: 40% }
-      - light.turn_on: { id: led_right, red: 0%, green: 0%, blue: 100%, brightness: 40% }
+      # Dial LEDs: dim white presence indicator (roles are per-effect, not per-LED).
+      - light.turn_on: { id: led_left, red: 100%, green: 100%, blue: 100%, brightness: 20% }
+      - light.turn_on: { id: led_center, red: 100%, green: 100%, blue: 100%, brightness: 20% }
+      - light.turn_on: { id: led_right, red: 100%, green: 100%, blue: 100%, brightness: 20% }
 
 esp32:
   board: adafruit_feather_esp32s3
@@ -46,6 +47,14 @@ api:
 # Firmware push over WiFi (the "push new code over wifi" TODO item).
 ota:
   - platform: esphome
+
+# Local web UI + a low-level REST API at http://${name}.local/ — controllable from a
+# browser or a custom page hitting /<domain>/<entity>/<action> (e.g.
+# /light/tree/turn_on?brightness=128). Bundled JS (local) so it works without internet.
+web_server:
+  port: 80
+  version: 3
+  local: true
 
 wifi:
   ssid: !secret wifi_ssid
@@ -269,7 +278,11 @@ sensor:
     update_interval: 1s
     lambda: "return tree::timer_remaining(millis() / 1000.0f);"
 
-  # LEFT dial: rotate = brightness.
+  # Dial roles mirror the CircuitPython controller's Animation mode (the mode the
+  # tree normally sits in). LEFT = cycle effect, CENTER = speed, RIGHT = the current
+  # effect's parameter, RIGHT press-and-turn = master brightness. The full mode
+  # state machine (RGB / Timer modes, LEFT-press to switch) is not in this subset.
+  # LEFT dial: rotate = cycle effect.
   - platform: seesaw
     seesaw: dial_left
     type: encoder
@@ -280,12 +293,13 @@ sensor:
     on_value:
       then:
         - lambda: |-
+            static const char *FX[] = {"Hue Shift", "Rainbow Cycle", "Cherry Blossom", "Pinwheel"};
             float d = x - id(enc_left_last); id(enc_left_last) = x;
             if (d == 0 || d > 20 || d < -20) return;
-            float nb = id(tree_light).current_values.get_brightness() + d * 0.03f;
-            if (nb < 0.05f) nb = 0.05f; if (nb > 1.0f) nb = 1.0f;
-            auto call = id(tree_light).turn_on(); call.set_brightness(nb); call.perform();
-  # CENTER dial: rotate = cycle through effects.
+            int idx = ((int) id(fx_index) + (d > 0 ? 1 : -1)) % 4; if (idx < 0) idx += 4;
+            id(fx_index) = idx;
+            auto call = id(tree_light).turn_on(); call.set_effect(FX[idx]); call.perform();
+  # CENTER dial: rotate = animation speed.
   - platform: seesaw
     seesaw: dial_center
     type: encoder
@@ -296,13 +310,12 @@ sensor:
     on_value:
       then:
         - lambda: |-
-            static const char *FX[] = {"Hue Shift", "Rainbow Cycle", "Pinwheel", "Cherry Blossom"};
             float d = x - id(enc_center_last); id(enc_center_last) = x;
             if (d == 0 || d > 20 || d < -20) return;
-            int idx = ((int) id(fx_index) + (d > 0 ? 1 : -1)) % 4; if (idx < 0) idx += 4;
-            id(fx_index) = idx;
-            auto call = id(tree_light).turn_on(); call.set_effect(FX[idx]); call.perform();
-  # RIGHT dial: rotate = animation speed.
+            float s = id(fx_speed) + d * 0.05f;
+            if (s < 0.0f) s = 0.0f; if (s > 1.0f) s = 1.0f;
+            id(fx_speed) = s;
+  # RIGHT dial: rotate = current effect's parameter; press-and-turn = brightness.
   - platform: seesaw
     seesaw: dial_right
     type: encoder
@@ -315,43 +328,41 @@ sensor:
         - lambda: |-
             float d = x - id(enc_right_last); id(enc_right_last) = x;
             if (d == 0 || d > 20 || d < -20) return;
-            float s = id(fx_speed) + d * 0.03f;
-            if (s < 0.0f) s = 0.0f; if (s > 1.0f) s = 1.0f;
-            id(fx_speed) = s;
+            if (id(btn_right).state) {   // press-and-turn = master brightness (any effect)
+              float nb = id(tree_light).current_values.get_brightness() + d * 0.05f;
+              if (nb < 0.05f) nb = 0.05f; if (nb > 1.0f) nb = 1.0f;
+              auto call = id(tree_light).turn_on(); call.set_brightness(nb); call.perform();
+              return;
+            }
+            int fx = (int) id(fx_index);
+            if (fx == 0)      { float v = id(hueshift_mode) + (d > 0 ? 1 : -1); if (v < 1) v = 1; if (v > 5) v = 5; id(hueshift_mode) = v; }
+            else if (fx == 1) { float v = id(rainbow_bandwidth) + d * 0.2f; if (v < 0.1f) v = 0.1f; if (v > 2.0f) v = 2.0f; id(rainbow_bandwidth) = v; }
+            else if (fx == 2) { float v = id(cherry_pink) + d * 0.05f; if (v < 0.1f) v = 0.1f; if (v > 0.9f) v = 0.9f; id(cherry_pink) = v; }
+            else              { float v = id(pinwheel_repeats) + (d > 0 ? 1 : -1); if (v < 1) v = 1; if (v > 4) v = 4; id(pinwheel_repeats) = v; }
 
 binary_sensor:
-  # LEFT dial button: toggle power.
+  # LEFT dial button: reserved (cycles mode in the full controller).
   - platform: seesaw
     seesaw: dial_left
     pin: 24
     id: btn_left
     internal: true
-    on_press:
-      - lambda: |-
-          if (id(tree_light).current_values.is_on()) id(tree_light).turn_off().perform();
-          else id(tree_light).turn_on().perform();
-  # CENTER dial button: (reserved).
+  # CENTER dial button: toggle power.
   - platform: seesaw
     seesaw: dial_center
     pin: 24
     id: btn_center
     internal: true
-  # RIGHT dial button: start / pause-resume the timer.
+    on_press:
+      - lambda: |-
+          if (id(tree_light).current_values.is_on()) id(tree_light).turn_off().perform();
+          else id(tree_light).turn_on().perform();
+  # RIGHT dial button: held while turning = brightness (read by the RIGHT encoder).
   - platform: seesaw
     seesaw: dial_right
     pin: 24
     id: btn_right
     internal: true
-    on_press:
-      - lambda: |-
-          float now = millis() / 1000.0f;
-          int st = tree::timer_state_code();
-          if (st == 1) { tree::timer_pause(now); }
-          else if (st == 2) { tree::timer_resume(now); }
-          else {
-            tree::timer_start(now, id(timer_duration));
-            auto c = id(tree_light).turn_on(); c.set_effect("Timer"); c.perform();
-          }
 
 text_sensor:
   - platform: template
