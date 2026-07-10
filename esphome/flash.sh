@@ -61,6 +61,10 @@ read -r -p "  Press Enter once the board is in the bootloader... " _
 PORT_DEV="$(detect_port)"
 say "Using serial port: $PORT_DEV"
 
-# 3. Build + upload + stream logs.
+# 3. Build + upload, then exit (don't tail logs — that just looks like a hang).
 say "Building and flashing ESPHome (first build downloads the toolchain; be patient)"
-exec "$ESPHOME" run "$CONFIG" --device "$PORT_DEV"
+"$ESPHOME" compile "$CONFIG"
+"$ESPHOME" upload "$CONFIG" --device "$PORT_DEV"
+say "Flashed. The tree should boot within ~15s."
+echo "  Watch logs:  esphome/flash.sh --logs-only   (Ctrl-C to exit)"
+echo "  Revert:      ./provision_board.sh"

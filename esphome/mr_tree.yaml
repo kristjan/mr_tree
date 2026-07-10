@@ -71,10 +71,22 @@ external_components:
   - source: github://ssieb/esphome_components
     components: [seesaw]
 
+# STEMMA-QT / I2C power is gated by GPIO7 on this board; without it the bus is
+# unpowered (SCL reads low, "no devices", and blocking timeouts starve the loop).
+# CircuitPython's board.I2C() enables this for you; ESPHome must do it explicitly.
+# restore_mode ALWAYS_ON drives GPIO7 high at setup, before the seesaw components init.
+switch:
+  - platform: gpio
+    pin: GPIO7
+    id: i2c_power
+    internal: true
+    restore_mode: ALWAYS_ON
+
 i2c:
   sda: GPIO3
   scl: GPIO4
   frequency: 400kHz
+  scan: false          # skip the startup scan (devices power up after GPIO7 goes high)
 
 seesaw:
   - id: dial_left
@@ -127,7 +139,7 @@ light:
   - platform: esp32_rmt_led_strip
     id: tree_light
     name: "Tree"
-    pin: GPIO18            # board.A1 on the Feather ESP32-S3
+    pin: GPIO17            # board.A1 on the Feather ESP32-S3 (GPIO17 per CircuitPython pins.c)
     num_leds: 100
     chipset: WS2812
     rgb_order: RGB         # the strand is wired RGB, not GRB (matches CircuitPython)
